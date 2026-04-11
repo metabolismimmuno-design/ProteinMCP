@@ -34,11 +34,57 @@ def discover_job_files(cache_root: Path) -> list[Path]:
     return sorted(cache_root.glob("*/jobs/*.json"))
 
 
+def normalize_entry(raw: dict, tool: str) -> JobEntry | None:
+    """Map raw JSON dict -> JobEntry, or None if required fields missing.
+
+    Compatibility: accepts `status` as fallback for `state` (current chai1_mcp
+    disk format) and `output_dir` as fallback for `run_dir` (spec section 7).
+    """
+    job_id = raw.get("job_id")
+    state = raw.get("state") or raw.get("status")
+    created_at = raw.get("created_at")
+    if not (job_id and state and created_at):
+        return None
+    return JobEntry(
+        job_id=job_id,
+        tool=tool,
+        state=state,
+        created_at=created_at,
+        finished_at=raw.get("finished_at"),
+        updated_at=raw.get("updated_at"),
+        run_dir=raw.get("run_dir") or raw.get("output_dir"),
+        modal_call_id=raw.get("modal_call_id"),
+    )
+
+
 def load_job_entries(paths: list[Path]) -> list[JobEntry]:
-    """Placeholder -- filled in Task 2."""
-    return []
+    """Read each path under fcntl shared lock, normalize, skip-and-warn on failure.
+
+    The `tool` field of each JobEntry is derived from the cache dir name
+    (`<cache_root>/<tool>/jobs/<job_id>.json`). Task 4 extends this with
+    JSON/permission handling; Task 5 extends with missing-field reporting.
+    """
+    entries: list[JobEntry] = []
+    for path in paths:
+        tool = path.parent.parent.name  # .../<tool>/jobs/<file>.json
+        with open(path, "r") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            try:
+                raw = json.load(f)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        entry = normalize_entry(raw, tool)
+        if entry is None:
+            continue
+        entries.append(entry)
+    return entries
 
 
 def render_table(entries: list[JobEntry], limit: int) -> str:
-    """Placeholder -- filled in Task 3."""
-    return ""
+    # Task 3 replaces this with a real fixed-width table. For now emit a
+    # simple whitespace-separated line per entry so test_basic can assert
+    # on job_id / tool / state presence.
+    lines = []
+    for e in entries[:limit]:
+        lines.append(f"{e.job_id}  {e.tool}  {e.state}")
+    return "\n".join(lines)
