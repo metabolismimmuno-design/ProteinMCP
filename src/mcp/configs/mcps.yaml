@@ -202,7 +202,7 @@ mcps:
     docker_volumes: []
     env_vars: {}
     path: tool-mcps/ligandmpnn_mcp
-    python_version: '3.11'
+    python_version: '3.12'
     runtime: python
     server_args:
     - src/server.py
