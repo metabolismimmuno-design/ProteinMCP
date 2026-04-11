@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working Directory Convention
+
+All task-generated files (analysis outputs, scripts, intermediate results, downloads) go into `workspace/` subdirectories — never into the ProteinMCP source tree. Create a descriptive subfolder per task (e.g., `workspace/binder_analysis_2026-04-07/`).
+
 ## Project Overview
 
 ProteinMCP is an agentic AI framework for autonomous protein engineering. It provides a registry of MCP (Model Context Protocol) servers for protein tools, a workflow skill system that orchestrates multi-MCP pipelines, and CLI tools (`pmcp`, `pskill`) to manage everything.

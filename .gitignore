@@ -16,3 +16,7 @@ public
 mcp.status
 .pytest_cache/
 .env
+.DS_Store
+.mcp.json
+.venv/
+workspace/
