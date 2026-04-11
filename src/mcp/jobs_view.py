@@ -80,11 +80,92 @@ def load_job_entries(paths: list[Path]) -> list[JobEntry]:
     return entries
 
 
+_TERMINAL_STATES = {"completed", "failed", "cancelled"}
+
+
+def _parse_iso_utc(s: str | None) -> datetime | None:
+    """Parse 'YYYY-MM-DDTHH:MM:SSZ' as UTC. Return None on failure."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _relative_time(created: datetime | None, now: datetime) -> str:
+    """Spec section 5.2. Returns '?' if created is None."""
+    if created is None:
+        return "?"
+    delta = now - created
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    if secs < 30 * 86400:
+        return f"{secs // 86400}d ago"
+    return created.strftime("%Y-%m-%d")
+
+
+def _format_elapsed(entry: JobEntry, now: datetime) -> str:
+    """Spec section 5.3. Empty string if neither duration endpoint available."""
+    created = _parse_iso_utc(entry.created_at)
+    if created is None:
+        return ""
+    if entry.state in _TERMINAL_STATES:
+        end = _parse_iso_utc(entry.finished_at) or _parse_iso_utc(entry.updated_at)
+        if end is None:
+            return ""
+    else:
+        end = now
+    secs = int((end - created).total_seconds())
+    if secs < 0:
+        return ""
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m{secs % 60:02d}s"
+    if secs < 86400:
+        return f"{secs // 3600}h{(secs % 3600) // 60:02d}m"
+    return f"{secs // 86400}d"
+
+
+def _truncate_run_dir(run_dir: str | None, width: int = 40) -> str:
+    """Spec section 5.4. None -> empty string (NOT the literal 'None')."""
+    if run_dir is None:
+        return ""
+    if len(run_dir) <= width:
+        return run_dir
+    # Keep last (width - 4) chars, prefix with '.../'
+    return ".../" + run_dir[-(width - 4):]
+
+
+# Column widths from spec section 5.1
+_COL_WIDTHS = [("JOB_ID", 26), ("TOOL", 10), ("STATE", 9),
+               ("CREATED", 9), ("ELAPSED", 7), ("RUN_DIR", 40)]
+
+
 def render_table(entries: list[JobEntry], limit: int) -> str:
-    # Task 3 replaces this with a real fixed-width table. For now emit a
-    # simple whitespace-separated line per entry so test_basic can assert
-    # on job_id / tool / state presence.
-    lines = []
-    for e in entries[:limit]:
-        lines.append(f"{e.job_id}  {e.tool}  {e.state}")
+    """Sort by created_at desc, head(limit), render fixed-width ASCII table."""
+    # Sort newest first. created_at is an ISO 8601 'Z' string, so lexicographic
+    # sort is equivalent to chronological sort (all entries in UTC, fixed width).
+    ordered = sorted(entries, key=lambda e: e.created_at, reverse=True)[:limit]
+    now = datetime.now(timezone.utc)
+
+    header = "  ".join(name.ljust(w) for name, w in _COL_WIDTHS).rstrip()
+    sep = "  ".join("-" * w for _, w in _COL_WIDTHS).rstrip()
+    lines = [header, sep]
+    for e in ordered:
+        cells = [
+            e.job_id.ljust(26)[:26],
+            e.tool.ljust(10)[:10],
+            e.state.ljust(9)[:9],
+            _relative_time(_parse_iso_utc(e.created_at), now).ljust(9)[:9],
+            _format_elapsed(e, now).ljust(7)[:7],
+            _truncate_run_dir(e.run_dir, 40).ljust(40)[:40],
+        ]
+        lines.append("  ".join(cells).rstrip())
     return "\n".join(lines)
