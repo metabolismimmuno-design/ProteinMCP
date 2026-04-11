@@ -10,6 +10,7 @@ Provides unified access to ProteinMCP functionality through subcommands:
 - pmcp uninstall: Uninstall MCP servers
 """
 
+import os
 import sys
 import click
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Optional
 # Import functions from existing modules
 from .mcp.create_mcp import create_mcp
 from .mcp.install_mcp import show_available_mcps, show_status, install_mcp_cmd, uninstall_mcp_cmd, search_mcps, show_info
+from .mcp.jobs_view import discover_job_files, load_job_entries, render_table
 
 # Logo for ProteinMCP
 LOGO = """\033[31m
@@ -260,6 +262,45 @@ def info_command(mcp_name: str):
       pmcp info proteinmpnn
     """
     show_info(mcp_name)
+
+
+def _resolve_cache_root() -> Path:
+    """Return ~/.cache unless PMCP_CACHE_ROOT env var overrides (used by smoke tests)."""
+    env = os.environ.get("PMCP_CACHE_ROOT")
+    if env:
+        return Path(env)
+    return Path.home() / ".cache"
+
+
+@cli.command(name="jobs")
+@click.option('--limit', type=click.IntRange(min=1), default=20,
+              help='Maximum number of jobs to display (default: 20)')
+def jobs_command(limit: int):
+    """
+    Show recent MCP jobs aggregated across all tool caches.
+
+    Reads ~/.cache/<mcp_name>/jobs/*.json (glob), normalizes each entry,
+    and renders a single table sorted by creation time descending. Read-only;
+    does not poll Modal or modify any file.
+
+    Examples:
+
+      # Show the 20 most recent jobs:
+      pmcp jobs
+
+      # Show only the 5 most recent:
+      pmcp jobs --limit 5
+    """
+    cache_root = _resolve_cache_root()
+    paths = discover_job_files(cache_root)
+    if not paths:
+        click.echo("No jobs found. Run an MCP tool first (e.g., chai1_predict).")
+        return
+    entries = load_job_entries(paths)
+    if not entries:
+        click.echo("No jobs found. Run an MCP tool first (e.g., chai1_predict).")
+        return
+    click.echo(render_table(entries, limit))
 
 
 def main():
