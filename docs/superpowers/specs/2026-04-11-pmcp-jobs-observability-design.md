@@ -1,7 +1,7 @@
 # Spec: `pmcp jobs` — Observability Lite (v0)
 
 **Date**: 2026-04-11
-**Status**: Draft → for implementation
+**Status**: ✅ **Implemented 2026-04-11** (plan archived at `docs/superpowers/plans/.archive/2026-04-11-pmcp-jobs-observability.md`). This doc is retained as reference for the design decisions that are now frozen in `src/mcp/jobs_view.py`. The "ROI #2" label below refers to an **older** review batch and does not match the current `project_harness_buildout.md` roadmap.
 **Scope**: ROI #2 of personal harness buildout (see `~/.claude/memory/project_harness_buildout.md`)
 **Supersedes**: N/A (first spec in ProteinMCP repo)
 

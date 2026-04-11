@@ -1,5 +1,7 @@
 # `pmcp jobs` Observability Lite Implementation Plan
 
+> **Status:** ✅ **completed 2026-04-11** — Task 1-6 shipped across commits `effa376` / `d8bb9d7` / `a20ef74` / `c935f6f` / `a79a61a` / `e57fe47`; Task 7 (harness memory sync) closed in the same-day follow-up conversation. Archived under `plans/.archive/` so future triage does not mistake it for pending work. The "ROI #2" label in this plan refers to an **older** review batch and does **not** match the current `project_harness_buildout.md` roadmap.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a read-only `pmcp jobs` subcommand that aggregates per-MCP job caches (`~/.cache/<mcp_name>/jobs/*.json`) into a single ASCII table, replacing the current manual `ls + cat + jq` recipe.
