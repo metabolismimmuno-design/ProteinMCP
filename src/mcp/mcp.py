@@ -90,6 +90,46 @@ class MCPStatus(Enum):
 
 
 # =============================================================================
+# Validation status (declarative, manually curated)
+# =============================================================================
+
+VALIDATION_CHECKS = ("smoke", "schema", "roundtrip", "real_case")
+VALIDATION_STATES = ("passed", "failed", "not_run")
+
+
+def _default_validation_status() -> Dict[str, str]:
+    return {check: "not_run" for check in VALIDATION_CHECKS}
+
+
+def validation_tier(vs: Dict[str, str]) -> str:
+    """
+    Aggregate the 4-check validation_status into a single tier.
+
+    Returns one of: "validated", "partial", "failed", "unvalidated".
+    """
+    if not vs:
+        return "unvalidated"
+    values = [vs.get(c, "not_run") for c in VALIDATION_CHECKS]
+    if any(v == "failed" for v in values):
+        return "failed"
+    if all(v == "passed" for v in values):
+        return "validated"
+    if any(v == "passed" for v in values):
+        return "partial"
+    return "unvalidated"
+
+
+def validation_glyph(tier: str) -> str:
+    """Unicode glyph for a validation tier."""
+    return {
+        "validated": "🟢",
+        "partial": "🟡",
+        "failed": "🔴",
+        "unvalidated": "⚪",
+    }.get(tier, "⚪")
+
+
+# =============================================================================
 # MCP Class - Represents a single MCP server
 # =============================================================================
 
@@ -130,6 +170,7 @@ class MCP:
     docker_image: Optional[str] = None
     docker_args: List[str] = field(default_factory=list)
     docker_volumes: List[str] = field(default_factory=list)
+    validation_status: Dict[str, str] = field(default_factory=_default_validation_status)
 
     def __post_init__(self):
         """Validate and normalize runtime type"""
@@ -138,6 +179,28 @@ class MCP:
         except ValueError:
             # Default to python if invalid
             self.runtime = MCPRuntime.PYTHON.value
+
+        # Normalize validation_status: fill missing keys with "not_run",
+        # coerce unknown states to "not_run", drop unexpected keys.
+        normalized = _default_validation_status()
+        if isinstance(self.validation_status, dict):
+            for check in VALIDATION_CHECKS:
+                val = self.validation_status.get(check, "not_run")
+                if val in VALIDATION_STATES:
+                    normalized[check] = val
+        self.validation_status = normalized
+
+    # -------------------------------------------------------------------------
+    # Validation tier helpers
+    # -------------------------------------------------------------------------
+
+    def validation_tier(self) -> str:
+        """Return this MCP's aggregate validation tier."""
+        return validation_tier(self.validation_status)
+
+    def validation_glyph(self) -> str:
+        """Return glyph for this MCP's validation tier."""
+        return validation_glyph(self.validation_tier())
 
     # -------------------------------------------------------------------------
     # Status Query Methods
@@ -980,7 +1043,14 @@ class MCP:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert MCP to dictionary"""
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        data = {k: v for k, v in asdict(self).items() if v is not None}
+        # Drop validation_status when it's the default (all not_run) to keep
+        # yaml files clean; only serialized when the user has declared at least
+        # one check result.
+        vs = data.get("validation_status")
+        if vs and self.validation_tier() == "unvalidated":
+            data.pop("validation_status", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'MCP':

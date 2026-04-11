@@ -113,6 +113,11 @@ mcps:
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/chai1_mcp
+    validation_status:
+      smoke: passed
+      schema: passed
+      roundtrip: passed
+      real_case: not_run
   esm_mcp:
     dependencies: []
     description: '> ESM MCP server for protein embedding and fitness modeling'
@@ -211,6 +216,11 @@ mcps:
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/ligandmpnn_mcp
+    validation_status:
+      smoke: passed
+      schema: passed
+      roundtrip: passed
+      real_case: not_run
   mmseqs2_mcp:
     dependencies: []
     description: Sequence search, clustering, and MSA generation using MMseqs2

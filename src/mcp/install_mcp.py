@@ -25,7 +25,7 @@ Note: Status checks are cached for 5 minutes to improve performance. Use --refre
 import argparse
 
 from .mcp_manager import MCPManager
-from .mcp import MCPStatus
+from .mcp import MCPStatus, VALIDATION_CHECKS, validation_glyph
 
 
 # =============================================================================
@@ -126,6 +126,9 @@ def show_status(refresh_cache: bool = False) -> None:
     # Display status
     print("📊 MCP Status Overview")
     print("=" * 80)
+    print("  Validation tier: 🟢 all 4 checks passed │ "
+          "🟡 partial │ 🔴 any failed │ ⚪ unvalidated")
+    print("  Checks: smoke · schema · roundtrip · real_case")
 
     # Show fully installed MCPs
     if both:
@@ -133,7 +136,8 @@ def show_status(refresh_cache: bool = False) -> None:
         for name, mcp in sorted(both.items()):
             desc = mcp.description[:50] + "..." if len(mcp.description) > 50 else mcp.description
             scope = "Local" if name in local_mcps else "Public"
-            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {desc}")
+            vg = mcp.validation_glyph()
+            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {vg} {desc}")
         print(f"\n  Total: {len(both)} MCPs")
 
     # Show downloaded but not registered
@@ -142,7 +146,8 @@ def show_status(refresh_cache: bool = False) -> None:
         for name, mcp in sorted(downloaded.items()):
             desc = mcp.description[:50] + "..." if len(mcp.description) > 50 else mcp.description
             scope = "Local" if name in local_mcps else "Public"
-            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {desc}")
+            vg = mcp.validation_glyph()
+            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {vg} {desc}")
         print(f"\n  Total: {len(downloaded)} MCPs")
         print(f"  Tip: Register with 'pmcp install <mcp_name>'")
 
@@ -152,7 +157,8 @@ def show_status(refresh_cache: bool = False) -> None:
         for name, mcp in sorted(registered.items()):
             desc = mcp.description[:50] + "..." if len(mcp.description) > 50 else mcp.description
             scope = "Local" if name in local_mcps else "Public"
-            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {desc}")
+            vg = mcp.validation_glyph()
+            print(f"    • {name:<20} [{scope:<7}] [{mcp.runtime:<6}] {vg} {desc}")
         print(f"\n  Total: {len(registered)} MCPs")
 
     if not both and not downloaded and not registered:
@@ -290,6 +296,13 @@ def show_info(mcp_name: str) -> None:
     print(f"  Status: {status.value}")
     print(f"  Installed: {'✅' if mcp.is_installed() else '❌'}")
     print(f"  Registered (Claude): {'✅' if mcp.is_registered('claude') else '❌'}")
+
+    tier = mcp.validation_tier()
+    print(f"  Validation: {mcp.validation_glyph()} {tier}")
+    state_glyph = {"passed": "🟢", "failed": "🔴", "not_run": "⚪"}
+    for check in VALIDATION_CHECKS:
+        state = mcp.validation_status.get(check, "not_run")
+        print(f"    • {check:<10} {state_glyph.get(state, '⚪')} {state}")
 
     if mcp.docker_image:
         print(f"  Docker Image: {mcp.docker_image}")
