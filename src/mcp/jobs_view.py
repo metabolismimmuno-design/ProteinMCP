@@ -34,17 +34,21 @@ def discover_job_files(cache_root: Path) -> list[Path]:
     return sorted(cache_root.glob("*/jobs/*.json"))
 
 
-def normalize_entry(raw: dict, tool: str) -> JobEntry | None:
-    """Map raw JSON dict -> JobEntry, or None if required fields missing.
+def normalize_entry(raw: dict, tool: str) -> tuple[JobEntry | None, str | None]:
+    """Map raw -> (JobEntry, None) on success, (None, missing_field) on failure.
 
-    Compatibility: accepts `status` as fallback for `state` (current chai1_mcp
-    disk format) and `output_dir` as fallback for `run_dir` (spec section 7).
+    `state` is satisfied by either `state` or `status` (chai1_mcp disk compat,
+    spec section 7). `run_dir` likewise falls back to `output_dir`.
     """
     job_id = raw.get("job_id")
+    if not job_id:
+        return None, "job_id"
     state = raw.get("state") or raw.get("status")
+    if not state:
+        return None, "state"
     created_at = raw.get("created_at")
-    if not (job_id and state and created_at):
-        return None
+    if not created_at:
+        return None, "created_at"
     return JobEntry(
         job_id=job_id,
         tool=tool,
@@ -54,7 +58,7 @@ def normalize_entry(raw: dict, tool: str) -> JobEntry | None:
         updated_at=raw.get("updated_at"),
         run_dir=raw.get("run_dir") or raw.get("output_dir"),
         modal_call_id=raw.get("modal_call_id"),
-    )
+    ), None
 
 
 def load_job_entries(paths: list[Path]) -> list[JobEntry]:
@@ -87,9 +91,10 @@ def load_job_entries(paths: list[Path]) -> list[JobEntry]:
         if not isinstance(raw, dict):
             print(f"warning: {path} not a JSON object; skipping", file=sys.stderr)
             continue
-        entry = normalize_entry(raw, tool)
+        entry, missing = normalize_entry(raw, tool)
         if entry is None:
-            # Task 5 adds a specific missing-field warning here.
+            print(f"warning: {path} missing required field {missing}; skipping",
+                  file=sys.stderr)
             continue
         entries.append(entry)
     return entries
