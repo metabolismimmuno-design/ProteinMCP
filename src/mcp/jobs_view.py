@@ -60,21 +60,36 @@ def normalize_entry(raw: dict, tool: str) -> JobEntry | None:
 def load_job_entries(paths: list[Path]) -> list[JobEntry]:
     """Read each path under fcntl shared lock, normalize, skip-and-warn on failure.
 
-    The `tool` field of each JobEntry is derived from the cache dir name
-    (`<cache_root>/<tool>/jobs/<job_id>.json`). Task 4 extends this with
-    JSON/permission handling; Task 5 extends with missing-field reporting.
+    Per spec section 6, no single corrupted or malformed file may cause the
+    command to fail. Warnings go to stderr only; stdout remains pipe-safe.
     """
     entries: list[JobEntry] = []
     for path in paths:
         tool = path.parent.parent.name  # .../<tool>/jobs/<file>.json
-        with open(path, "r") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-            try:
-                raw = json.load(f)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        try:
+            with open(path, "r") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    raw = json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except json.JSONDecodeError as exc:
+            print(f"warning: failed to parse {path} ({type(exc).__name__}); skipping",
+                  file=sys.stderr)
+            continue
+        except PermissionError:
+            print(f"warning: {path} permission denied; skipping", file=sys.stderr)
+            continue
+        except OSError as exc:
+            print(f"warning: failed to read {path} ({type(exc).__name__}); skipping",
+                  file=sys.stderr)
+            continue
+        if not isinstance(raw, dict):
+            print(f"warning: {path} not a JSON object; skipping", file=sys.stderr)
+            continue
         entry = normalize_entry(raw, tool)
         if entry is None:
+            # Task 5 adds a specific missing-field warning here.
             continue
         entries.append(entry)
     return entries
