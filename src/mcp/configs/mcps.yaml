@@ -51,52 +51,66 @@ mcps:
     url: https://github.com/MacromNex/amber_mcp
   bindcraft_mcp:
     dependencies: []
-    description: '> BindCraft MCP server for protein binder design'
-    docker_args:
-    - --gpus
-    - all
-    - --ipc=host
-    docker_image: ghcr.io/macromnex/bindcraft_mcp:latest
-    docker_volumes: []
-    env_vars: {}
-    runtime: docker
-    server_args: []
-    server_command: ''
-    setup_commands: []
-    source: Tool
-    url: https://github.com/MacromNex/bindcraft_mcp
-  boltz_mcp:
-    dependencies: []
-    description: '> Boltz2 MCP server for protein structure and affinity prediction'
+    description: '> BindCraft MCP server for hallucination-based protein binder design
+      (AlphaFold2 + PyRosetta, Modal GPU backend). Designs binders de novo against
+      a target PDB. Typical runtime: 1-4h per job (L40S).'
     docker_args: []
     docker_volumes: []
     env_vars: {}
-    path: tool-mcps/boltz_mcp
-    python_version: '3.10'
+    path: tool-mcps/bindcraft_mcp
+    python_version: '3.12'
     runtime: python
     server_args:
     - src/server.py
     server_command: python
-    setup_commands: []
+    setup_commands:
+    - pip install fastmcp loguru modal --trusted-host pypi.org --trusted-host files.pythonhosted.org
+    - modal deploy ~/biomodals/modal_bindcraft.py
+    setup_script: quick_setup.sh
+    source: Tool
+    url: https://github.com/MacromNex/bindcraft_mcp
+  boltz_mcp:
+    dependencies: []
+    description: '> Boltz-2 MCP server for protein structure and affinity prediction (Modal backend, no local GPU)'
+    docker_args: []
+    docker_volumes: []
+    env_vars: {}
+    path: tool-mcps/boltz_mcp
+    python_version: '3.12'
+    runtime: python
+    server_args:
+    - src/server.py
+    server_command: python
+    setup_commands:
+    - pip install fastmcp loguru modal --trusted-host pypi.org --trusted-host files.pythonhosted.org
+    - modal deploy ~/biomodals/modal_boltz2.py
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/boltz_mcp
   boltzgen_mcp:
     dependencies: []
-    description: '> BoltzGen MCP server for protein binder design'
-    docker_args:
-    - --gpus
-    - all
-    - --ipc=host
-    docker_image: ghcr.io/macromnex/boltzgen_mcp:latest
+    description: '> BoltzGen MCP server for generative protein binder design (protein/peptide/nanobody),
+      Modal GPU backend (L40S). Diffusion-based generative model — NOT a structure predictor.'
+    docker_args: []
     docker_volumes: []
     env_vars: {}
-    runtime: docker
-    server_args: []
-    server_command: ''
-    setup_commands: []
+    path: tool-mcps/boltzgen_mcp
+    python_version: '3.12'
+    runtime: python
+    server_args:
+    - src/server.py
+    server_command: python
+    setup_commands:
+    - pip install fastmcp loguru modal --trusted-host pypi.org --trusted-host files.pythonhosted.org
+    - modal deploy ~/biomodals/modal_boltzgen.py
+    setup_script: quick_setup.sh
     source: Tool
-    url: https://github.com/MacromNex/boltzgen_mcp
+    url: https://github.com/HannesStark/boltzgen
+    validation_status:
+      schema: passed
+      smoke: passed
+      roundtrip: not_run
+      real_case: not_run
   chai1_mcp:
     dependencies: []
     description: '> Chai-1 MCP server for protein structure prediction'
@@ -272,17 +286,18 @@ mcps:
     url: https://github.com/MacromNex/mutcompute_mcp
   netMHCIIpan_mcp:
     dependencies: []
-    description: '> NetMHCIIpan-4.3 MCP Server for MHC Class II binding prediction'
+    description: '> NetMHCIIpan-4.3 MCP Server for MHC Class II binding prediction (DTU Web API backend, no local binary)'
     docker_args: []
     docker_volumes: []
     env_vars: {}
     path: tool-mcps/netmhc2pan_mcp
-    python_version: '3.10'
+    python_version: '3.12'
     runtime: python
     server_args:
     - src/server.py
     server_command: python
-    setup_commands: []
+    setup_commands:
+    - pip install fastmcp loguru requests --trusted-host pypi.org --trusted-host files.pythonhosted.org
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/netmhc2pan_mcp
@@ -338,6 +353,27 @@ mcps:
       smoke: passed
       roundtrip: not_run
       real_case: not_run
+  protenix_mcp:
+    dependencies: []
+    description: '> Protenix MCP server for AF3-class structure prediction (protein/DNA/RNA/ligand/ion),
+      Modal GPU backend (ByteDance open-source AlphaFold 3 reproduction)'
+    docker_args: []
+    docker_volumes: []
+    env_vars: {}
+    path: tool-mcps/protenix_mcp
+    python_version: '3.12'
+    runtime: python
+    server_args:
+    - src/server.py
+    server_command: python
+    setup_commands: []
+    setup_script: quick_setup.sh
+    source: Tool
+    url: https://github.com/bytedance/Protenix
+    validation_status:
+      schema: passed
+      smoke: passed
+      roundtrip: not_run
   proteinmpnn_mcp:
     dependencies: []
     description: '> ProteinMPNN MCP server for protein design (inverse folding)'
@@ -391,8 +427,15 @@ mcps:
     validation_status:
       schema: passed
       smoke: passed
-      roundtrip: not_run
+      roundtrip: blocked_backend
       real_case: not_run
+      roundtrip_notes: >
+        RFdiffusion2 requires PyRosetta (commercial license) + Apptainer SIF container.
+        The Modal pip-install approach is fundamentally not viable. Actual inference
+        script is rf_diffusion/run_inference.py (not scripts/run_inference.py) and
+        must be run via apptainer exec --nv rf_diffusion/exec/bakerlab_rf_diffusion_aa.sif.
+        Fix path: use Modal image built from the official SIF or a pre-built Docker
+        image that embeds PyRosetta.
   stability_oracle_mcp:
     dependencies: []
     description: '> Stability Oracle MCP server for protein mutation ΔΔG prediction
@@ -413,8 +456,12 @@ mcps:
     validation_status:
       schema: passed
       smoke: passed
-      roundtrip: not_run
+      roundtrip: passed
       real_case: not_run
+      roundtrip_notes: >
+        2026-04-12: roundtrip on complex_9q9n.pdb chain B (VHH), 5 positions,
+        100 predictions in 19s. Top stabilizing: L30C (ΔΔG=-1.195). CSV written
+        to workspace/stability_oracle_roundtrip/roundtrip_test_01/predictions.csv.
   rosetta_mcp:
     dependencies: []
     description: '> Model Control Protocol (MCP) server for Rosetta molecular modeling
