@@ -114,10 +114,10 @@ mcps:
     source: Tool
     url: https://github.com/MacromNex/chai1_mcp
     validation_status:
-      smoke: passed
-      schema: passed
-      roundtrip: passed
       real_case: not_run
+      roundtrip: passed
+      schema: passed
+      smoke: passed
   esm_mcp:
     dependencies: []
     description: '> ESM MCP server for protein embedding and fitness modeling'
@@ -217,10 +217,10 @@ mcps:
     source: Tool
     url: https://github.com/MacromNex/ligandmpnn_mcp
     validation_status:
-      smoke: passed
-      schema: passed
-      roundtrip: passed
       real_case: not_run
+      roundtrip: passed
+      schema: passed
+      smoke: passed
   mmseqs2_mcp:
     dependencies: []
     description: Sequence search, clustering, and MSA generation using MMseqs2
@@ -325,7 +325,7 @@ mcps:
     docker_volumes: []
     env_vars: {}
     path: tool-mcps/protein_sol_mcp
-    python_version: '3.10'
+    python_version: '3.12'
     runtime: python
     server_args:
     - src/server.py
@@ -334,6 +334,10 @@ mcps:
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/protein_sol_mcp
+    validation_status:
+      smoke: passed
+      roundtrip: not_run
+      real_case: not_run
   proteinmpnn_mcp:
     dependencies: []
     description: '> ProteinMPNN MCP server for protein design (inverse folding)'
@@ -369,12 +373,13 @@ mcps:
     url: https://github.com/MacromNex/prottrans_mcp
   rfdiffusion2_mcp:
     dependencies: []
-    description: '> RFdiffusion2 MCP server for protein structure generation (backbone)'
+    description: '> RFdiffusion2 MCP server for ligand-binding protein backbone design
+      (small-molecule binder + enzyme scaffolding) via Modal GPU'
     docker_args: []
     docker_volumes: []
     env_vars: {}
     path: tool-mcps/rfdiffusion2_mcp
-    python_version: '3.11'
+    python_version: '3.12'
     runtime: python
     server_args:
     - src/server.py
@@ -383,6 +388,33 @@ mcps:
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/rfdiffusion2_mcp
+    validation_status:
+      schema: passed
+      smoke: passed
+      roundtrip: not_run
+      real_case: not_run
+  stability_oracle_mcp:
+    dependencies: []
+    description: '> Stability Oracle MCP server for protein mutation ΔΔG prediction
+      via 3D-ResNet (Nature Comms 2024), Modal GPU backend'
+    docker_args: []
+    docker_volumes: []
+    env_vars: {}
+    path: tool-mcps/stability_oracle_mcp
+    python_version: '3.12'
+    runtime: python
+    server_args:
+    - src/server.py
+    server_command: python
+    setup_commands: []
+    setup_script: quick_setup.sh
+    source: Tool
+    url: https://github.com/MacromNex/stability_oracle_mcp
+    validation_status:
+      schema: passed
+      smoke: passed
+      roundtrip: not_run
+      real_case: not_run
   rosetta_mcp:
     dependencies: []
     description: '> Model Control Protocol (MCP) server for Rosetta molecular modeling
