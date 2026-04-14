@@ -46,12 +46,18 @@ class Skill:
         else:
             self.command_name = command_name_base
 
-        # Use absolute paths based on PROJECT_ROOT so pskill works from any directory
-        self.claude_commands_dir = PROJECT_ROOT / ".claude/commands"
-        self.claude_skills_dir = PROJECT_ROOT / ".claude/skills"
+        # Install to GLOBAL ~/.claude/ so skills are discoverable from any working directory
+        # (was PROJECT_ROOT/.claude which trapped skills inside the ProteinMCP repo).
+        self.claude_commands_dir = Path.home() / ".claude" / "commands"
+        self.claude_skills_dir = Path.home() / ".claude" / "skills"
 
+        # Slash command stays as a flat .md file in commands/
         self.command_file_path = self.claude_commands_dir / f"{self.command_name}.md"
-        self.skill_file_path = self.claude_skills_dir / f"{self.name.replace('_', '-')}.md"
+
+        # Global skills use directory-with-SKILL.md format (matches biopython, adaptyv:*, etc.)
+        self.skill_dir_name = self.name.replace("_", "-")
+        self.skill_dir_path = self.claude_skills_dir / self.skill_dir_name
+        self.skill_file_path = self.skill_dir_path / "SKILL.md"
 
     @property
     def description(self) -> str:
@@ -94,47 +100,88 @@ class Skill:
         return self.get_required_mcps()
 
     def get_status(self) -> str:
-        """Checks if the skill is installed."""
+        """Checks if the skill is installed at the global location."""
         is_skill_installed = self.skill_file_path.exists()
-        is_command_installed = self.command_file_path.exists()
+        is_legacy_command = self.command_file_path.exists()
 
-        if is_skill_installed and is_command_installed:
-            return "✅ Installed"
+        if is_skill_installed and is_legacy_command:
+            return "✅ Installed (global) ⚠️ legacy command file present — run uninstall+install to clean"
         elif is_skill_installed:
-            return "🟡 Partially installed (skill only)"
-        elif is_command_installed:
-            return "🟡 Partially installed (command only)"
+            return "✅ Installed (global)"
+        elif is_legacy_command:
+            return "🟡 Legacy command-only install — run install to upgrade"
         else:
             return "❌ Not Installed"
 
+    def _build_skill_md_with_frontmatter(self) -> str:
+        """
+        Build SKILL.md content by prepending YAML frontmatter to the source body.
+
+        Claude Code's global skill discovery requires `name` and `description` in
+        YAML frontmatter. Source workflow-skills/*.md files don't carry frontmatter,
+        so we synthesize it from configs.yaml at install time (single source of truth
+        for description, no duplication in source files).
+        """
+        body = self.file_path.read_text()
+        # Description is required; fall back to first non-title line if config missing.
+        desc = self.description.replace("\n", " ").strip()
+        # Escape any frontmatter delimiter accidentally in description.
+        desc = desc.replace("---", "—")
+        frontmatter = (
+            "---\n"
+            f"name: {self.skill_dir_name}\n"
+            f"description: {desc}\n"
+            "---\n\n"
+        )
+        return frontmatter + body
+
     def install(self):
-        """Installs the skill by copying its file to .claude directories."""
+        """
+        Installs the skill globally so it's discoverable from any working directory.
+
+        Writes only ~/.claude/skills/<name>/SKILL.md (directory + SKILL.md format
+        with synthesized YAML frontmatter). Does NOT write to ~/.claude/commands/
+        because Claude Code indexes commands/*.md as skills too, which would create
+        a duplicate entry (one from skills/ with proper frontmatter, one from
+        commands/ falling back to the H1 title).
+        """
         try:
-            self.claude_commands_dir.mkdir(parents=True, exist_ok=True)
-            self.claude_skills_dir.mkdir(parents=True, exist_ok=True)
+            self.skill_dir_path.mkdir(parents=True, exist_ok=True)
 
-            shutil.copy(self.file_path, self.command_file_path)
-            shutil.copy(self.file_path, self.skill_file_path)
+            # Global skill: write SKILL.md with synthesized YAML frontmatter
+            self.skill_file_path.write_text(self._build_skill_md_with_frontmatter())
 
-            print(f"  Copied skill to: {self.skill_file_path}")
-            print(f"  Created command: {self.command_file_path}")
+            print(f"  Installed skill to: {self.skill_file_path}")
             return True
         except Exception as e:
             print(f"  Error installing skill '{self.name}': {e}")
             return False
 
     def uninstall(self):
-        """Uninstalls the skill by removing its files from .claude directories."""
+        """
+        Uninstalls the skill by removing the global SKILL.md.
+
+        Removes the SKILL.md file and the skill directory (only if empty — protects
+        any user-added files like references/, notes/, etc.). Also removes any
+        legacy command file from ~/.claude/commands/ for backwards compatibility
+        with previous installs.
+        """
         removed = False
         try:
+            # Legacy cleanup: previous versions wrote to commands/ which caused
+            # duplicate skill registrations. Remove if present.
             if self.command_file_path.exists():
                 self.command_file_path.unlink()
-                print(f"  Removed command: {self.command_file_path}")
+                print(f"  Removed legacy command: {self.command_file_path}")
                 removed = True
             if self.skill_file_path.exists():
                 self.skill_file_path.unlink()
                 print(f"  Removed skill: {self.skill_file_path}")
                 removed = True
+            # Remove the skill directory only if it's empty (don't nuke user additions)
+            if self.skill_dir_path.exists() and not any(self.skill_dir_path.iterdir()):
+                self.skill_dir_path.rmdir()
+                print(f"  Removed dir:   {self.skill_dir_path}")
 
             if not removed:
                 print("  Skill not found, nothing to remove.")

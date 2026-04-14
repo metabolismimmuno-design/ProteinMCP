@@ -22,6 +22,30 @@ skills:
     file_path: workflow-skills/nanobody_design.md
     required_mcps:
     - boltzgen_mcp
+  vhh_max_success_design:
+    description: Maximum-success-rate VHH (nanobody) de novo design pipeline. 5-layer
+      workflow combining 5 orthogonal generation tools (BoltzGen nanobody-anything,
+      Germinal, IgGM, BindCraft, RFdiffusion+ProteinMPNN), 4-model orthogonal structure
+      validation (Chai-1, Boltz-2, Protenix, AF2-multimer), strict developability
+      funnel (ANARCI, ESM2 PLL, protein-sol, Stability Oracle, netMHCpan I+II,
+      glycosylation), and affinity maturation loop with MBER + MD. Parallel to
+      nanobody_design skill; use this when success rate matters more than compute cost.
+    file_path: workflow-skills/vhh_max_success_design.md
+    required_mcps:
+    - bindcraft_mcp
+    - boltzgen_mcp
+    - chai1_mcp
+    - boltz2_mcp
+    - protenix_mcp
+    - ligandmpnn_mcp
+    - stability_oracle_mcp
+    - netMHCpan_mcp
+    - netMHCIIpan_mcp
+    - protein-sol_mcp
+    - interpro
+    - ibex_mcp
+    - iggm_mcp
+    - mmseqs2
   mcp_docker_debug:
     description: Debug and fix Docker build failures in MCP repositories. Identifies
       root causes (permissions, dependencies, compilation errors, network issues)
