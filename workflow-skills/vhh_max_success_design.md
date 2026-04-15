@@ -329,6 +329,23 @@ Combine conservation (1.3), glycan avoidance (1.4), competitive landscape (1.5),
 - Output: `{RESULTS_DIR}/val/dsasa_filter_results.csv` + `consensus_ranked_dsasa.csv`
 - 详见 `feedback_dsasa_filter.md`
 
+### Step 3.5c — Boltz-2 Affinity Prediction (parallel with 3.5a/b)
+
+**Tool:** `mcp__boltz2_mcp__boltz2_predict_affinity`
+
+- Input: top candidates from L3.2 ipSAE intersection (same batch as L3.5a/b — run in parallel)
+- Output: `predicted_ddg` column (kcal/mol, more negative = stronger binding)
+- Add `affinity_rank` column to `consensus_ranked_dsasa.csv` (rank-based, do not use absolute values cross-campaign)
+
+**Composite score weights (calibrate after first campaign):**
+- ipSAE rank (L3.5a): weight 0.4
+- dSASA ratio (L3.5b): weight 0.3
+- Boltz-2 affinity rank (L3.5c): weight 0.3
+
+**Note:** `predicted_ddg` absolute values are not comparable across projects; use only as within-campaign ranking. Affinity re-prediction at L5.3 (post-MBER) is removed (see Step 5.3).
+
+---
+
 ### Step 3.6 — AF2Rank structural re-identification
 
 **Tool:** `modal run modal_af2rank.py`
@@ -434,13 +451,12 @@ Expected output: ~25–40 candidates → Layer 5.
 - If a matured candidate fails re-validation → revert to its pre-MBER version
 - Output: `{RESULTS_DIR}/mature/revalidated.csv`
 
-### Step 5.3 — Boltz-2 affinity prediction
+### Step 5.3 — ~~Boltz-2 affinity prediction~~ *(moved to L3.5c)*
 
-**Tool:** `mcp__boltz2_mcp__boltz2_predict_affinity`
-
-- Per-candidate KD estimate
-- **Use for relative ranking, not absolute** (Boltz-2 affinity is still approximate)
-- Output: `{RESULTS_DIR}/mature/affinity_ranked.csv`
+<!-- removed: Boltz-2 affinity prediction moved to L3.5c (parallel with ipSAE/dSASA at Step 3.5).
+     Affinity ranking is now available earlier and does not need to repeat post-MBER.
+     If post-MBER affinity delta is needed, read predicted_ddg from L3.5c output and compare
+     against MBER-re-validated L3 results directly. -->
 
 ### Step 5.4 — (Optional) ESM2 masked residue refinement
 
