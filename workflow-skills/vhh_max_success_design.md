@@ -95,6 +95,7 @@ L2_MPNN_SEQS_PER_BACKBONE: 8
 
 # === Layer 3 validation ===
 L3_MIN_MODELS_PASS: 3                         # Candidate must pass >=3 of 4 validation models
+L3_MIN_MODELS_PASS_IGGM: 2                   # IgGM path: relaxed threshold (out-of-distribution conformation tolerance)
 L3_IPSAE_TOP_FRAC: 0.5                        # Keep top 50% by ipSAE rank
 
 # === Layer 4 thresholds (VHH-specific, borrow from adaptyv:protein-qc, calibrate after first run) ===
@@ -307,7 +308,10 @@ Combine conservation (1.3), glycan avoidance (1.4), competitive landscape (1.5),
 **Tool:** `adaptyv:ipsae` skill
 
 - Compute ipSAE per model per candidate
-- Require candidate passes `L3_MIN_MODELS_PASS` (default 3) of 4 models with ipSAE in top `L3_IPSAE_TOP_FRAC`
+- **L3 filter threshold (by source path):**
+  - BoltzGen / Germinal / BindCraft / RFdiffusion paths: `L3_MIN_MODELS_PASS` (default 3/4)
+  - IgGM path: `L3_MIN_MODELS_PASS_IGGM` (default 2/4 — IgGM epitope-conditioned designs are more likely to be out-of-distribution for AF2/Protenix training data)
+  - IgGM candidates passing the relaxed threshold are tagged `relaxed_filter=True` in output CSV for downstream tracking
 - **Do NOT compare ipTM/ipSAE absolute values across models** — only within-model ranks
 - Output: `{RESULTS_DIR}/val/consensus_ranked.csv`
 
