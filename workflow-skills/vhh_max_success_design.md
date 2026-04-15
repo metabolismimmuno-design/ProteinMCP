@@ -248,11 +248,13 @@ Combine conservation (1.3), glycan avoidance (1.4), competitive landscape (1.5),
 - Hotspot conditioning on target
 - `L2_RFDIFFUSION_BACKBONES` backbones total
 
-**Step E2 — Sequence design (ProteinMPNN, strict FR mode):**
-- **Use ProteinMPNN (not SolubleMPNN)** per `feedback_vhh_sequence_design.md`
+**Step E2 — Sequence design (AbMPNN, strict FR mode):**
+- **Use `model_checkpoint: "abmpnn"`** (Exscientia, arXiv:2310.19513): ProteinMPNN fine-tuned on SAbDab antibody structures; ~60% sequence recovery vs ~35% for generic ProteinMPNN; 100% valid antibody sequences
+- **Do NOT use SolubleMPNN** per `feedback_vhh_sequence_design.md`
 - `vhh_framework_mode: strict` to lock FR, design CDR only
 - `num_seq_per_target: L2_MPNN_SEQS_PER_BACKBONE`
-- Reason: CDR paratope needs aromatic/hydrophobic bias that SolubleMPNN strips away; solubility is filtered downstream in L4 via `protein-sol_mcp`
+- Reason: AbMPNN preserves CDR paratope aromatic/hydrophobic bias (same as ProteinMPNN) while better capturing antibody sequence grammar; solubility filtered downstream in L4 via `protein-sol_mcp`
+- Fallback: if AbMPNN weights unavailable, use `model_checkpoint: "proteinmpnn_v_48_020"`
 
 **Step E3 — Pool merge:**
 - Output: ~4000 sequences → PLL pre-filter (see Step 4.2 early application) → ~500 → `{RESULTS_DIR}/gen/rfdiffusion/`
@@ -591,7 +593,7 @@ Until calibrated, treat thresholds as soft filters — if a candidate misses one
 1. **FR/CDR are jointly optimized** (`domain_protein_design_gotchas.md` #1): do not transplant CDRs across FRs. Use strict FR mode in Path E from the start.
 2. **Cross-model ipTM is not comparable** (`domain_protein_design_gotchas.md` #2): Layer 3 consensus uses rank agreement, never absolute ipTM comparison across models.
 3. **Immunogenicity scan is mandatory** (`feedback_immunogenicity_check.md`): Step 4.5 cannot be skipped for therapeutic VHH.
-4. **ProteinMPNN not SolubleMPNN for VHH** (`feedback_vhh_sequence_design.md`): Path E uses ProteinMPNN full sequence + protein-sol downstream filter.
+4. **AbMPNN (not SolubleMPNN) for VHH** (`feedback_vhh_sequence_design.md`): Path E uses AbMPNN (`model_checkpoint: "abmpnn"`) — antibody-fine-tuned ProteinMPNN — with strict FR mode; protein-sol downstream filter in L4. Fallback to `proteinmpnn_v_48_020` if AbMPNN weights unavailable.
 5. **MBER outputs MUST be re-validated** (Step 5.2): MBER's AF2-optimized outputs cannot bypass 4-model consensus.
 
 ---
