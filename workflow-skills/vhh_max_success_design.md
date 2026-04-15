@@ -94,7 +94,8 @@ L2_RFDIFFUSION_BACKBONES: 500
 L2_MPNN_SEQS_PER_BACKBONE: 8
 
 # === Layer 2.5 hotspot pre-screen ===
-L2P5_HOTSPOT_MIN_CONTACTS: 1          # 最少接触 hotspot 数（contacts=0 → rejected）
+L2P5_HOTSPOT_MIN_CONTACTS_TRACK_A: 2  # Track A (on-target)：进入主 L3 验证池（gB-VHH N=200 伪AUC校准 2026-04-15）
+L2P5_HOTSPOT_MIN_CONTACTS_TRACK_B: 0  # Track B (alt-epitope)：contacts=0 但 ipTM 高 → 表位分析子流程
 L2P5_DISTANCE_THRESHOLD: 8.0          # 接触判定距离阈值（Å）
 
 # === Layer 3 validation ===
@@ -104,7 +105,7 @@ L3_IPSAE_TOP_FRAC: 0.5                        # Keep top 50% by ipSAE rank
 
 # === Layer 4 thresholds (VHH-specific, borrow from adaptyv:protein-qc, calibrate after first run) ===
 L4_PLDDT_MIN: 0.80                            # TODO: calibrate for VHH
-L4_IPTM_MIN: 0.50                             # TODO: calibrate for VHH
+L4_IPTM_MIN: 0.9175                           # gB-VHH N=200 伪AUC校准 2026-04-15, AUC=0.752, J=0.408
 L4_PAE_INTERFACE_MAX: 10                      # TODO: calibrate for VHH
 L4_SCRMSD_MAX: 2.0                            # TODO: calibrate for VHH
 L4_ESM_PLL_MIN_PERCENTILE: 50                 # TODO: calibrate for VHH
@@ -284,11 +285,21 @@ python ~/protein-design-utils/vhh/hotspot_prescreen.py \
 - `{RESULTS_DIR}/l2p5_prescreen.csv` — 所有候选的 hotspot 接触统计
 - `{RESULTS_DIR}/gen/rejected/hotspot_miss/` — contacts < 阈值的候选（保留，不删除）
 
-**过滤动作：**
-- `hotspot_contacts >= L2P5_HOTSPOT_MIN_CONTACTS` → 进入 L3 验证池
-- `hotspot_contacts < L2P5_HOTSPOT_MIN_CONTACTS` → 移入 `rejected/hotspot_miss/`
+**双轨分流（gB-VHH N=200 校准 2026-04-15）：**
 
-**迭代回路：** L2.5 pass rate < 5% → 回 L1.6 重选 hotspot，不调 L2 参数。
+| 条件 | 去向 | 标注 |
+|------|------|------|
+| `hotspot_contacts >= L2P5_HOTSPOT_MIN_CONTACTS_TRACK_A` (≥2) | → **Track A**：主 L3 验证池（on-target binder） | `track=A` |
+| `hotspot_contacts == 0` 且 `b2_iptm >= L4_IPTM_MIN` (≥0.9175) | → **Track B**：表位分析子流程（alt-epitope binder） | `track=B` |
+| 其余（contacts=0 且 ipTM 低，或 contacts=1 模糊） | → 移入 `rejected/` | — |
+
+**Track B 表位分析子流程：**
+1. 用 `hotspot_prescreen.py --threshold 5.0` 重跑（更严格距离）找最近接触残基
+2. 聚类接触图谱，识别候选实际结合的表位区域
+3. 若该表位区域与目标 epitope 相邻（±15 Å）→ 保留进入 L3（弱标注）
+4. 若完全异位 → 丢弃，但记录到 `alt_epitope_candidates.csv`（备用，可能是 allosteric binder）
+
+**迭代回路：** Track A pass rate < 5% → 回 L1.6 重选 hotspot，不调 L2 参数。
 
 ---
 
