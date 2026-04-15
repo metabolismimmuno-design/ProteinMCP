@@ -93,6 +93,10 @@ L2_BINDCRAFT_NUM_FINAL: 100
 L2_RFDIFFUSION_BACKBONES: 500
 L2_MPNN_SEQS_PER_BACKBONE: 8
 
+# === Layer 2.5 hotspot pre-screen ===
+L2P5_HOTSPOT_MIN_CONTACTS: 1          # 最少接触 hotspot 数（contacts=0 → rejected）
+L2P5_DISTANCE_THRESHOLD: 8.0          # 接触判定距离阈值（Å）
+
 # === Layer 3 validation ===
 L3_MIN_MODELS_PASS: 3                         # Candidate must pass >=3 of 4 validation models
 L3_MIN_MODELS_PASS_IGGM: 2                   # IgGM path: relaxed threshold (out-of-distribution conformation tolerance)
@@ -257,6 +261,34 @@ Combine conservation (1.3), glycan avoidance (1.4), competitive landscape (1.5),
 - Unify all 5 paths' outputs into a single candidate table: `{RESULTS_DIR}/gen/merged_pool.csv`
 - Columns: `cand_id, source_path, sequence, structure_cif, source_job_id`
 - Expected size: 1000–1500 candidates
+
+---
+
+## Layer 2.5 — Geometric Hotspot Pre-screen
+
+**Goal:** 过滤 hotspot_contacts=0 的完全脱靶候选，节省 L3 四模型验证算力。纯几何分析，零额外 Modal 计算。
+
+**Tool:** `hotspot_prescreen.py`（`~/protein-design-utils/vhh/`）
+
+```bash
+python ~/protein-design-utils/vhh/hotspot_prescreen.py \
+  {RESULTS_DIR}/gen/ \
+  --hotspots inputs/hotspots.json \
+  --antigen-chain {TARGET_CHAIN} \
+  --threshold {L2P5_DISTANCE_THRESHOLD} \
+  --min-contacts {L2P5_HOTSPOT_MIN_CONTACTS} \
+  --out {RESULTS_DIR}/l2p5_prescreen.csv
+```
+
+**输出：**
+- `{RESULTS_DIR}/l2p5_prescreen.csv` — 所有候选的 hotspot 接触统计
+- `{RESULTS_DIR}/gen/rejected/hotspot_miss/` — contacts < 阈值的候选（保留，不删除）
+
+**过滤动作：**
+- `hotspot_contacts >= L2P5_HOTSPOT_MIN_CONTACTS` → 进入 L3 验证池
+- `hotspot_contacts < L2P5_HOTSPOT_MIN_CONTACTS` → 移入 `rejected/hotspot_miss/`
+
+**迭代回路：** L2.5 pass rate < 5% → 回 L1.6 重选 hotspot，不调 L2 参数。
 
 ---
 
