@@ -1,6 +1,6 @@
 # VHH Max-Success Design Skill
 
-> **Last updated:** 2026-04-14 — added `ibex_mcp` (L3.0 monomer sanity check), `iggm_mcp` (replaces `modal run modal_iggm.py` in Path C), `filter_dsasa.py` (L3.5b CDR3 interface filter), Protenix v2 note (L3.3).
+> **Last updated:** 2026-04-15 — removed Step 5.5 MD + Loop 3 + L5_MD_TOP_N (R2-5, confirmed removed); removed `modal_md_protein_ligand.py` from tool list; updated L6.3 top-table columns. Previous: 2026-04-14 added `ibex_mcp`, `iggm_mcp`, `filter_dsasa.py`, Protenix v2 note.
 
 Maximum-success-rate VHH (nanobody) de novo design pipeline. Combines 5 orthogonal generation tools, 4-model structure validation, strict developability funnel, and affinity maturation loop. Designed to maximize experimental hit rate when compute budget is not the primary constraint.
 
@@ -42,7 +42,6 @@ This will install the following MCP servers:
 - `modal_esm2_predict_masked.py` — ESM2 masked residue suggestion (optional L5)
 - `modal_mber.py` — MBER affinity maturation
 - `modal_af2rank.py` — AF2Rank structural re-identification
-- `modal_md_protein_ligand.py` — OpenMM MD for top candidates
 - `modal_pdb2png.py` — PyMOL visualization for report
 
 **Adaptyv skills referenced** (loaded on demand via `Skill` tool):
@@ -115,7 +114,6 @@ L4_MHC_RANK_THRESHOLD: 2.0                    # MHC rank % — above this = not 
 
 # === Layer 5 maturation ===
 L5_MBER_TOP_N: 50                             # Top N from L4 enter MBER
-L5_MD_TOP_N: 15                               # Top N after MBER re-validation enter MD
 
 # === Execution mode ===
 EXECUTION_MODE: "hybrid"                      # "parallel" | "serial" | "hybrid" — set at pre-flight
@@ -296,10 +294,24 @@ python ~/protein-design-utils/vhh/hotspot_prescreen.py \
 | 其余（contacts=0 且 ipTM 低，或 contacts=1 模糊） | → 移入 `rejected/` | — |
 
 **Track B 表位分析子流程：**
-1. 用 `hotspot_prescreen.py --threshold 5.0` 重跑（更严格距离）找最近接触残基
-2. 聚类接触图谱，识别候选实际结合的表位区域
-3. 若该表位区域与目标 epitope 相邻（±15 Å）→ 保留进入 L3（弱标注）
-4. 若完全异位 → 丢弃，但记录到 `alt_epitope_candidates.csv`（备用，可能是 allosteric binder）
+
+**Tool:** `~/protein-design-utils/vhh/track_b_cluster.py`
+
+```bash
+python ~/protein-design-utils/vhh/track_b_cluster.py \
+  --prescreen {RESULTS_DIR}/l2p5_prescreen.csv \
+  --candidates {RESULTS_DIR}/gen/merged_pool.csv \
+  --outdir {RESULTS_DIR}/track_b/
+```
+
+1. 提取所有 Track B 候选的 CDR3 序列
+2. 计算 CDR3 pairwise Levenshtein 距离，层次聚类（阈值 0.5）
+3. 以序列簇差异推测多样表位识别：**不同簇 = 可能识别不同的表位区域**
+4. 输出：`track_b_clusters.csv`（簇分配）、`track_b_summary.md`（摘要）、`track_b_representatives.fasta`（各簇代表序列）
+
+**决策规则（人工审阅 `track_b_summary.md`）：**
+- 接触残基与目标 epitope 相邻（±15 Å）→ 标注 `track=B_keep`，进 L3 弱标注通道
+- 完全异位 → 记录到 `alt_epitope_candidates.csv`（备用，可能是 allosteric binder），不进主 L3
 
 **迭代回路：** Track A pass rate < 5% → 回 L1.6 重选 hotspot，不调 L2 参数。
 
@@ -419,13 +431,17 @@ Expected funnel: 1000–1500 → ~200–300 candidates enter Layer 4.
 
 **Strictly serial**, cheap-first. Each step reads the previous step's output. Intermediate CSVs persisted between steps (format TBD — decide on first run).
 
-### Step 4.1 — ANARCI numbering & framework integrity
+### Step 4.1 — ANARCI numbering & framework integrity + germline humanness
 
 **Tool:** `modal run modal_anarci.py`
 
 - Scheme: IMGT (primary), Kabat (secondary check)
+- **Required params:** `--csv --assign_germline --use_species human --ncpu 2`
+  - `--assign_germline` activates germline alignment; `--use_species human` restricts to human IGHV germlines
+  - Output CSV gains `v_gene` (best-match IGHV name) and `v_identity` (float 0–1, FR sequence identity to that germline)
 - Pass: numbering succeeds AND FR1/FR2/FR3/FR4 boundaries match the scaffold/template
 - **Drop:** any candidate ANARCI fails to number, or FR region length deviates
+- **Extract `humanness_score`**: copy `v_identity` column as `humanness_score` — this is the L4.7 Pareto input for that dimension. VHH typical range: 0.72–0.87 vs human IGHV3 family. Measures FR humanness only (CDR excluded), which is the correct proxy for immunogenic risk in the framework region.
 - Expected reduction: 200–300 → ~180–250
 
 ### Step 4.2 — ESM2 PLL sequence plausibility
@@ -512,15 +528,11 @@ Expected output: ~25–40 candidates → Layer 5.
 - **Do not auto-apply** — flag for manual review; actual application requires another L3/L4 round
 - Output: `{RESULTS_DIR}/mature/esm2_suggestions.csv`
 
-### Step 5.5 — MD stability check on top candidates
-
-**Tool:** `modal run modal_md_protein_ligand.py`
-
-- Input: top `L5_MD_TOP_N` (default 15) VHH-target complexes
-- 100 ns trajectory
-- Metrics: RMSD (global & per-domain), RMSF per residue, interface contact persistence
-- **Drop candidates where VHH unbinds or CDR3 shows RMSD > 3 Å from starting pose**
-- Output: `{RESULTS_DIR}/mature/md_survivors.csv`
+<!-- Step 5.5 MD removed 2026-04-14 (R2-5): ROI negative for de novo VHH screening.
+     SOTA campaigns (BindCraft/Germinal/IgGM) don't run MD; L3 4-model consensus +
+     L3.5b dSASA + L4.2 ESM C PLL + L4.7 Pareto already covers stability.
+     100ns × 15 candidates ≈ 100–200 A100-h; better spent on cell-free expression.
+     If MD is needed for a specific mechanism/paper study, write a dedicated skill. -->
 
 ### Layer 5 gate
 
@@ -552,7 +564,7 @@ Expected final output: 10–20 candidates for experimental testing.
 
 - Render top 10 VHH-target complexes as publication-quality PNGs
 - Generate full funnel CSV: `{RESULTS_DIR}/final/funnel_full.csv` (every candidate across every layer)
-- Generate top-table: `{RESULTS_DIR}/final/top_candidates.md` with sequence, L3 consensus rank, L4 developability flags, L5 affinity, MD survival, ESM2 suggestions
+- Generate top-table: `{RESULTS_DIR}/final/top_candidates.md` with sequence, L3 consensus rank, L4 developability flags, L4.7 Pareto rank, L5 affinity, ESM2 suggestions
 
 ---
 
@@ -581,10 +593,7 @@ Until calibrated, treat thresholds as soft filters — if a candidate misses one
 - Diagnosis: MBER overfit AF2 (known failure mode from HSV1 task09_1)
 - Action: revert to pre-MBER candidate, do NOT tune MBER parameters
 
-**Loop 3 — Layer 5.5 MD fail → flag CDR3 instability**
-- Trigger: Candidate unbinds or CDR3 RMSF spikes in MD
-- Diagnosis: static ipTM missed dynamic instability
-- Action: Drop candidate. If >50% of top-N fail MD, reconsider whether L3 thresholds are too loose.
+<!-- Loop 3 (MD fail) removed 2026-04-14 along with Step 5.5 (R2-5). -->
 
 ---
 
