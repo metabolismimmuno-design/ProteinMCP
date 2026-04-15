@@ -23,13 +23,13 @@ skills:
     required_mcps:
     - boltzgen_mcp
   vhh_max_success_design:
-    description: Maximum-success-rate VHH (nanobody) de novo design pipeline. 5-layer
-      workflow combining 5 orthogonal generation tools (BoltzGen nanobody-anything,
-      Germinal, IgGM, BindCraft, RFdiffusion+ProteinMPNN), 4-model orthogonal structure
-      validation (Chai-1, Boltz-2, Protenix, AF2-multimer), strict developability
-      funnel (ANARCI, ESM2 PLL, protein-sol, Stability Oracle, netMHCpan I+II,
-      glycosylation), and affinity maturation loop with MBER + MD. Parallel to
-      nanobody_design skill; use this when success rate matters more than compute cost.
+    description: Maximum-success-rate VHH (nanobody) de novo design pipeline. 4
+      orthogonal generation paths (BoltzGen nanobody-anything, Germinal, IgGM,
+      RFdiffusion+AbMPNN; BindCraft excluded — not VHH-specific), 2-model or 4-model
+      structure validation (Chai-1+AF2m recommended 2-model), developability funnel
+      (ANARCI, protein-sol, AbMPNN scoring, Stability Oracle, netMHCpan I+II,
+      glycosylation), and affinity maturation with MBER. Parallel to nanobody_design
+      skill; use this when success rate matters more than compute cost.
     file_path: workflow-skills/vhh_max_success_design.md
     required_mcps:
     - bindcraft_mcp

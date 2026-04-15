@@ -1,3 +1,8 @@
+---
+name: nanobody-design
+description: Design nanobody CDR regions using BoltzGen with optimized cysteine filtering for single-domain antibodies (VHH)
+---
+
 # Nanobody Design Skill
 
 Design nanobody CDR regions using BoltzGen with optimized cysteine filtering for single-domain antibodies (VHH)

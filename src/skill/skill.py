@@ -102,56 +102,82 @@ class Skill:
     def get_status(self) -> str:
         """Checks if the skill is installed at the global location."""
         is_skill_installed = self.skill_file_path.exists()
+        is_symlink = self.skill_file_path.is_symlink()
         is_legacy_command = self.command_file_path.exists()
 
-        if is_skill_installed and is_legacy_command:
-            return "✅ Installed (global) ⚠️ legacy command file present — run uninstall+install to clean"
-        elif is_skill_installed:
-            return "✅ Installed (global)"
+        if is_skill_installed:
+            install_label = "✅ Installed (global, symlinked)" if is_symlink else "✅ Installed (global, copy — run install to upgrade)"
+        else:
+            install_label = None
+
+        if install_label and is_legacy_command:
+            return f"{install_label} ⚠️ legacy command file present — run uninstall+install to clean"
+        elif install_label:
+            return install_label
         elif is_legacy_command:
             return "🟡 Legacy command-only install — run install to upgrade"
         else:
             return "❌ Not Installed"
 
-    def _build_skill_md_with_frontmatter(self) -> str:
-        """
-        Build SKILL.md content by prepending YAML frontmatter to the source body.
+    def _source_has_frontmatter(self) -> bool:
+        """Returns True if the source file already begins with YAML frontmatter."""
+        try:
+            return self.file_path.read_text().startswith("---\n")
+        except Exception:
+            return False
 
-        Claude Code's global skill discovery requires `name` and `description` in
-        YAML frontmatter. Source workflow-skills/*.md files don't carry frontmatter,
-        so we synthesize it from configs.yaml at install time (single source of truth
-        for description, no duplication in source files).
-        """
-        body = self.file_path.read_text()
-        # Description is required; fall back to first non-title line if config missing.
+    def _build_frontmatter(self) -> str:
+        """Build the YAML frontmatter block (without source body)."""
         desc = self.description.replace("\n", " ").strip()
-        # Escape any frontmatter delimiter accidentally in description.
         desc = desc.replace("---", "—")
-        frontmatter = (
-            "---\n"
-            f"name: {self.skill_dir_name}\n"
-            f"description: {desc}\n"
-            "---\n\n"
-        )
-        return frontmatter + body
+        return f"---\nname: {self.skill_dir_name}\ndescription: {desc}\n---\n\n"
+
+    def _ensure_source_has_frontmatter(self):
+        """
+        Write YAML frontmatter into the source file if not already present.
+
+        Called once at install time so the symlinked SKILL.md carries the
+        frontmatter Claude Code needs for global skill discovery.
+        """
+        if not self._source_has_frontmatter():
+            content = self._build_frontmatter() + self.file_path.read_text()
+            self.file_path.write_text(content)
+            print(f"  Added frontmatter to source: {self.file_path.name}")
 
     def install(self):
         """
-        Installs the skill globally so it's discoverable from any working directory.
+        Installs the skill by symlinking SKILL.md -> source file.
 
-        Writes only ~/.claude/skills/<name>/SKILL.md (directory + SKILL.md format
-        with synthesized YAML frontmatter). Does NOT write to ~/.claude/commands/
-        because Claude Code indexes commands/*.md as skills too, which would create
-        a duplicate entry (one from skills/ with proper frontmatter, one from
-        commands/ falling back to the H1 title).
+        Creates ~/.claude/skills/<name>/SKILL.md as a symlink to the absolute
+        path of the source workflow-skills/*.md file.  Edits to either location
+        are immediately reflected — no manual re-install needed after content
+        changes.  pskill install only needs to be re-run when adding a brand-new
+        skill for the first time.
+
+        On first install the source file is updated with YAML frontmatter (required
+        by Claude Code for global skill discovery).  Subsequent installs are
+        idempotent: if the symlink already points to the correct source it is left
+        unchanged.
         """
         try:
             self.skill_dir_path.mkdir(parents=True, exist_ok=True)
 
-            # Global skill: write SKILL.md with synthesized YAML frontmatter
-            self.skill_file_path.write_text(self._build_skill_md_with_frontmatter())
+            # Ensure source file carries frontmatter (one-time migration)
+            self._ensure_source_has_frontmatter()
 
-            print(f"  Installed skill to: {self.skill_file_path}")
+            target = self.file_path.resolve()
+
+            # If already a correct symlink, nothing to do
+            if self.skill_file_path.is_symlink() and self.skill_file_path.resolve() == target:
+                print(f"  Already linked:  {self.skill_file_path.name} -> {self.file_path.name}")
+                return True
+
+            # Remove stale copy or wrong symlink
+            if self.skill_file_path.exists() or self.skill_file_path.is_symlink():
+                self.skill_file_path.unlink()
+
+            self.skill_file_path.symlink_to(target)
+            print(f"  Linked skill:    {self.skill_file_path} -> {target}")
             return True
         except Exception as e:
             print(f"  Error installing skill '{self.name}': {e}")
