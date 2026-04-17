@@ -69,13 +69,13 @@ mcps:
     setup_script: quick_setup.sh
     source: Tool
     url: https://github.com/MacromNex/bindcraft_mcp
-  boltz_mcp:
+  boltz2_mcp:
     dependencies: []
     description: '> Boltz-2 MCP server for protein structure and affinity prediction (Modal backend, no local GPU)'
     docker_args: []
     docker_volumes: []
     env_vars: {}
-    path: tool-mcps/boltz_mcp
+    path: tool-mcps/boltz2_mcp
     python_version: '3.12'
     runtime: python
     server_args:
@@ -86,7 +86,7 @@ mcps:
     - modal deploy ~/biomodals/modal_boltz2.py
     setup_script: quick_setup.sh
     source: Tool
-    url: https://github.com/MacromNex/boltz_mcp
+    url: https://github.com/MacromNex/boltz2_mcp
   boltzgen_mcp:
     dependencies: []
     description: '> BoltzGen MCP server for generative protein binder design (protein/peptide/nanobody),

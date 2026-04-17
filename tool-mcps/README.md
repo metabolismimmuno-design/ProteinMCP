@@ -56,7 +56,7 @@ pmcp install mmseqs2_mcp
 |-----|---------|-------------|
 | [AlphaFold2 MCP](https://github.com/Biomolecular-Design-Nexus/alphafold2_mcp) | python | Protein structure prediction, supporting complex and batch predictions |
 | [AlphaFold3 MCP](https://github.com/Biomolecular-Design-Nexus/alphafold3_mcp) | python | Protein structure prediction, supporting batch prediction |
-| [Boltz MCP](https://github.com/Biomolecular-Design-Nexus/boltz_mcp) | python | Boltz2 for protein structure and affinity prediction |
+| [Boltz MCP](https://github.com/Biomolecular-Design-Nexus/boltz2_mcp) | python | Boltz2 for protein structure and affinity prediction |
 | [Chai-1 MCP](https://github.com/Biomolecular-Design-Nexus/chai1_mcp) | python | Chai-1 for protein structure prediction |
 | [ESMFold MCP](https://github.com/Biomolecular-Design-Nexus/esmfold_mcp) | python | ESMFold for protein structure prediction |
 

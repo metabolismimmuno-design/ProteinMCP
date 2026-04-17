@@ -153,7 +153,7 @@ pmcp status               # Show installed/registered status
 ```bash
 # Create from GitHub repository
 pmcp create --github-url https://github.com/jwohlwend/boltz \
-  --mcp-dir tool-mcps/boltz_mcp \
+  --mcp-dir tool-mcps/boltz2_mcp \
   --use-case-filter 'structure prediction with boltz2, affinity prediction with boltz2'
 
 # Create from local directory

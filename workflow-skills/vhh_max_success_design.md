@@ -161,7 +161,10 @@ EXECUTION_MODE: "hybrid"                      # "parallel" | "serial" | "hybrid"
 
 ## Layer 1 — Target Preparation & Epitope Characterization
 
-Goal: Produce target CIF, epitope residue list, 3–6 hotspots, glycan avoidance list, and competitive intelligence summary.
+Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive intelligence summary.
+
+> **广谱设计（多病原体靶标）入口判断：**
+> 如已运行 `cross-genus-conservation` skill，domain annotation（1.2）、UniRef 保守性（1.3）、糖基避雷（1.4）均已在该 skill 中完成，**直接从 1.1 进入，完成后跳至 1.5 竞争情报**。`EPITOPE_RESIDUES` 和 `HOTSPOT_RESIDUES` 直接取用 `design_recommendations.txt` 的输出。
 
 ### Step 1.1 — Target structure & sequence
 
@@ -172,26 +175,32 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, glycan avoidance
 - Remove waters, ions, irrelevant ligands
 - Extract sequence; verify chain boundaries
 
-### Step 1.2 — Target domain annotation
+### Step 1.2 — Target domain annotation（单靶点模式）
 
 **Tool:** `interpro` MCP (`analyze_protein_sequence`)
+
+> **已运行 cross-genus-conservation → 跳过**（已在 Step 2 完成）
 
 - Confirm epitope falls within the intended functional domain
 - Check for disordered regions adjacent to epitope (unreliable for design)
 
-### Step 1.3 — Target MSA & conservation
+### Step 1.3 — Target MSA & conservation（单靶点模式，可选）
 
 **Tool:** `mcp__mmseqs2__generate_msa`
+
+> **已运行 cross-genus-conservation → 跳过**（已在 Step 4 完成，跨属直接比对比 UniRef entropy 更可靠）
 
 - Generate MSA against UniRef
 - Compute per-residue conservation
 - Prefer hotspots with conservation score > 0.5 (more robust epitope)
 
-### Step 1.4 — Glycan avoidance
+### Step 1.4 — Glycan avoidance（单靶点模式）
 
 **Tool:** `glycoengineering` skill
 
-> **Input: 抗原序列**（非 VHH；此步骤扫描靶标蛋白，不是设计的候选——VHH CDR 的糖基化检查见 Step 4.6）
+> **已运行 cross-genus-conservation → 跳过**（已在 Step 5 完成，糖基风险已标注于 design_recommendations.txt）
+>
+> **Input: 抗原序列**（非 VHH；VHH CDR 侧糖基化检查见 Step 4.6）
 
 - Scan target for N-X-S/T sequons (X ≠ P)
 - Flag sequons within epitope ± 8 residues
@@ -208,7 +217,9 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, glycan avoidance
 
 ### Step 1.6 — Hotspot finalization
 
-Combine conservation (1.3), glycan avoidance (1.4), competitive landscape (1.5), and epitope residues (config) → output `inputs/hotspots.json` with 3–6 residues. This feeds all Layer 2 paths.
+**广谱模式**（已跑 cross-genus-conservation）：取用 `design_recommendations.txt` 的 hotspot 列表，与竞争情报（1.5）交叉验证（已报道 epitope 优先），去除 🚫 糖基遮蔽残基 → 输出 `inputs/hotspots.json`。
+
+**单靶点模式**：综合 1.3 保守性 + 1.4 糖基 + 1.5 竞争情报 + epitope config → 输出 `inputs/hotspots.json`，3–6 残基，喂给所有 Layer 2 路径。
 
 ---
 

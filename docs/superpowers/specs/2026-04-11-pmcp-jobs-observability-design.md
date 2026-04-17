@@ -181,7 +181,7 @@ class JobEntry:
 | Column | Width | Notes |
 |--------|------:|-------|
 | `JOB_ID` | 26 | long enough for `chai1_260411_1021_4149` (22 chars) + slack |
-| `TOOL` | 10 | fits `chai1_mcp`, `boltz_mcp`, `bindcraft_mcp` truncates to `bindcraft_` |
+| `TOOL` | 10 | fits `chai1_mcp`, `boltz2_mcp`, `bindcraft_mcp` truncates to `bindcraft_` |
 | `STATE` | 9 | fits `completed`, `cancelled` |
 | `CREATED` | 9 | relative time, e.g. `2h ago`, `2026-04-11` if >30d |
 | `ELAPSED` | 7 | e.g. `1m59s`, `18h12m`, `3d` |
