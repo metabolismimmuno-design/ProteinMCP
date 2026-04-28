@@ -20,6 +20,9 @@ Maximum-success-rate VHH (nanobody) de novo design pipeline. Combines **4 orthog
 Before running this workflow, install the skill and all required MCPs:
 
 ```bash
+# pskill 位于 ~/claude-project/ProteinMCP/.venv/bin/pskill
+# 若未在 PATH，先激活 venv 或用绝对路径：
+source ~/claude-project/ProteinMCP/.venv/bin/activate
 pskill install vhh_max_success_design
 ```
 
@@ -29,16 +32,19 @@ This will install the following MCP servers:
 - `chai1_mcp` — Chai-1 structure prediction (validation model 1)
 - `boltz2_mcp` — Boltz-2 structure prediction (validation model 2; affinity module not used — not validated for VHH-antigen interfaces)
 - `protenix_mcp` — Protenix structure prediction (validation model 3; **v2 default with `use_tfg_guidance=True` once weights re-open, currently v1**)
-- `ibex_mcp` — VHH/Ab monomer structure prediction (L3.0 sanity check; replaces NanoBodyBuilder2; non-commercial license per `feedback_ibex_mcp.md`)
-- `iggm_mcp` — IgGM epitope-conditioned CDR design (Path C; per `feedback_iggm_mcp.md`)
+- `ibex_mcp` — VHH/Ab monomer structure prediction (L3.0 sanity check; replaces NanoBodyBuilder2; non-commercial license per `reference_mcp_tools.md`)
+- `iggm_mcp` — IgGM epitope-conditioned CDR design (Path C; per `reference_mcp_tools.md`)
 - `rfdiffusion2_mcp` — (NOT USED; listed here only to avoid accidental install; RFdiffusion v1 is used via modal script)
 - `ligandmpnn_mcp` — AbMPNN sequence design for VHH (checkpoint: `abmpnn` via ligandmpnn_mcp infrastructure; fallback: `proteinmpnn_v_48_020`)
 - `stability_oracle_mcp` — ΔΔG mutation scanning
-- `netMHCpan_mcp` — MHC-I immunogenicity scan (mandatory per `feedback_immunogenicity_check.md`)
+- `netMHCpan_mcp` — MHC-I immunogenicity scan (mandatory per `reference_vhh_max_success_skill.md`)
 - `netMHCIIpan_mcp` — MHC-II immunogenicity scan
 - `protein-sol_mcp` — Solubility prediction
 - `interpro` — Target domain annotation
 - `mmseqs2` — Target MSA generation
+
+**Local CLI dependencies（需本地安装，非 MCP）：**
+- `mmseqs` CLI — Step 2.dedup 序列聚类去重（`mmseqs easy-cluster`）。安装：`brew install mmseqs2` 或 `conda install -c bioconda mmseqs2`。验证：`mmseqs --version`。注意：`mcp__mmseqs2` 是 MSA 工具，不能用于聚类，两者完全独立。
 
 **Non-MCP modal scripts used directly** (via `modal run`):
 - `modal_germinal.py` — Germinal VHH de novo (germline-aware)
@@ -54,17 +60,12 @@ This will install the following MCP servers:
 **Adaptyv skills referenced** (loaded on demand via `Skill` tool):
 - `adaptyv:ipsae` — Binder ranking (L3.5)
 - `adaptyv:foldseek` — IP / structural similarity annotation (L3 end; annotate `ip_risk`, do not auto-drop)
-- `adaptyv:protein-qc` — QC threshold defaults (all layers)
-- `adaptyv:cell-free-expression` — L6 experimental planning
-- `adaptyv:binding-characterization` — L6 SPR/BLI planning
-- `adaptyv:pdb` / `adaptyv:uniprot` — L1 target fetching
+- `adaptyv:pdb` / `adaptyv:uniprot` — L1 target fetching（备用，主路径用 gget）
 
 **Global memory files this skill enforces**:
-- `feedback_immunogenicity_check.md` — netMHCpan I+II mandatory before final ranking
+- `reference_vhh_max_success_skill.md` — NetMHCpan I+II mandatory (NetMHCpan 节) + MPNN choice on Path D (MPNN 选型节)
 - `domain_protein_design_gotchas.md` — rule #1 (CDR/FR inseparable), rule #2 (cross-model ipTM not comparable)
-- `feedback_vhh_sequence_design.md` — MPNN choice on Layer 2 path E
-- `feedback_ibex_mcp.md` — Ibex usage + non-commercial license caveat
-- `feedback_iggm_mcp.md` — IgGM FASTA format + epitope conditioning
+- `reference_mcp_tools.md` — ibex_mcp usage + non-commercial license caveat; iggm_mcp FASTA format + epitope conditioning
 - `feedback_dsasa_filter.md` — CDR3 dSASA filter usage (L3.5b)
 
 ---
@@ -168,7 +169,7 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 
 ### Step 1.1 — Target structure & sequence
 
-**Tools:** `adaptyv:pdb`, `adaptyv:uniprot`, `gget` skill
+**Tool:** `gget` skill（主路径：`gget pdb <ID>` 下载结构，`gget uniprot <ID>` 获取序列/注释；备用：`/adaptyv:pdb` 或 `/adaptyv:uniprot`）
 
 - Fetch target structure (CIF preferred, fallback PDB)
 - Trim to binding region + 10 Å buffer
@@ -177,7 +178,7 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 
 ### Step 1.2 — Target domain annotation（单靶点模式）
 
-**Tool:** `interpro` MCP (`analyze_protein_sequence`)
+**Tool:** `mcp__interpro__analyze_protein_sequence`
 
 > **已运行 cross-genus-conservation → 跳过**（已在 Step 2 完成）
 
@@ -208,7 +209,7 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 
 ### Step 1.5 — Competitive intelligence
 
-**Tools:** `claude_ai_PubMed`, `claude_ai_bioRxiv`, `claude_ai_Clinical_Trials`, `paper-lookup` skill
+**Tools:** `paper-lookup` skill (PubMed / bioRxiv / clinical literature), `WebSearch` (ClinicalTrials.gov)
 
 - Search for existing VHH/nanobody against target
 - Check ClinicalTrials.gov for nanobody programs on this target
@@ -243,18 +244,31 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 
 **Tool:** `modal run modal_germinal.py`
 
+> **⚠️ 无 MCP 封装，无 job ID 追踪。** Germinal 不支持 `--detach`，在 Hybrid 并行模式下需单独处理：
+> ```bash
+> # Hybrid 模式：后台运行，输出重定向到日志文件
+> modal run modal_germinal.py \
+>   --run-type vhh \
+>   --max-trajectories L2_GERMINAL_TRAJECTORIES \
+>   --max-passing-designs L2_GERMINAL_PASSING \
+>   > {RESULTS_DIR}/gen/germinal/run.log 2>&1 &
+> echo "Germinal PID: $!"
+> # 完成判断：ls {RESULTS_DIR}/gen/germinal/*.pdb | wc -l 达到预期数量
+> ```
+
 - Prerequisite: `germinal-models` Volume initialized (see `feedback_biomodals.md`)
 - Build `inputs/germinal_target.yaml` with target PDB + epitope + hotspots
-- Run: `--run-type vhh --max-trajectories L2_GERMINAL_TRAJECTORIES --max-passing-designs L2_GERMINAL_PASSING`
 - Output: germline-aware VHH sequences + AF2 predictions → `{RESULTS_DIR}/gen/germinal/`
 
 ### Path C — IgGM epitope-conditioned design (Priority P2)
 
 **Tool:** `mcp__iggm_mcp__iggm_design` (replaces direct `modal run modal_iggm.py` — gains pmcp job tracking)
 
-- Input: VHH scaffold FASTA with `X` masking CDR1/2/3 positions (CDR1+2+3 全部重新设计，FR 保留)
-- Antigen FASTA: last header specifies antigen chain ID and **must include full sequence body**, not empty header (踩坑见 `feedback_iggm_mcp.md`)
-- Epitope conditioning: pass epitope residue list from Step 1.6 hotspots — this is the unique value of IgGM (RFdiffusion can't do epitope conditioning at sequence level)
+- `input_fasta_str`：VHH scaffold FASTA，用 `X` 标记 CDR1/2/3 待设计位置（FR 保留）；**最后一条 entry** 的 header = 抗原链 ID（如 `>A`），body = 完整抗原序列（不能省略 body，否则 `NoneType` 报错）
+- `antigen_pdb_str`：抗原 PDB 格式字符串（**独立参数**，传入结构信息；不嵌入 FASTA）——从 Step 1.1 的抗原 CIF 转换或直接读取 PDB 文件内容
+- `epitope`：逗号分隔的 epitope 残基编号字符串（来自 Step 1.6 hotspots）
+- 完整调用示例：`iggm_design(input_fasta_str=..., output_dir=..., task="design", antigen_pdb_str=..., epitope="67,89,91")`
+- 详见踩坑记录：`reference_mcp_tools.md`（IgGM 节）
 - Samples: `L2_IGGM_SAMPLES` (gB demo: 5 samples ~10s each)
 - Output: per-sample VHH PDBs → `{RESULTS_DIR}/gen/iggm/`
 
@@ -270,8 +284,10 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 
 **Step D2 — Sequence design (AbMPNN, strict FR mode):**
 - **Use `model_checkpoint: "abmpnn"`** (Exscientia, arXiv:2310.19513): ProteinMPNN fine-tuned on SAbDab antibody structures; ~60% sequence recovery vs ~35% for generic ProteinMPNN; 100% valid antibody sequences
-- **Do NOT use SolubleMPNN** per `feedback_vhh_sequence_design.md`
-- `vhh_framework_mode: strict` to lock FR, design CDR only
+- **Do NOT use SolubleMPNN** per `reference_vhh_max_success_skill.md`
+- `vhh_framework_mode: "strict"` to lock FR, design CDR only
+- **`vhh_chain: "B"`** — RFdiffusion 输出的 binder 固定在 chain B，必须显式指定，否则 MCP 默认 chain A（错误链）
+- **`cdr_positions: {"B": [<CDR1 residues>, <CDR2 residues>, <CDR3 residues>]}`** — strict 模式的必填参数（见 MCP schema）。CDR 编号来源：**在 Path D 启动前对 scaffold 模板预先运行 ANARCI**（`modal run modal_anarci.py --scheme imgt --csv`），读取输出的 IMGT CDR 位置列表后填入。不能用 L4.1 的 ANARCI 结果（那时 D2 已完成）。
 - `num_seq_per_target: L2_MPNN_SEQS_PER_BACKBONE`
 - Reason: AbMPNN preserves CDR paratope aromatic/hydrophobic bias (same as ProteinMPNN) while better capturing antibody sequence grammar; solubility filtered downstream in L4 via `protein-sol_mcp`
 - Fallback: if AbMPNN weights unavailable, use `model_checkpoint: "proteinmpnn_v_48_020"`
@@ -283,8 +299,19 @@ Goal: Produce target CIF, epitope residue list, 3–6 hotspots, and competitive 
 ### Step 2.merge — Candidate pool consolidation
 
 - Unify all 4 paths' outputs into a single candidate table: `{RESULTS_DIR}/gen/merged_pool.csv`
-- Columns: `cand_id, source_path, sequence, structure_cif, source_job_id`
+- Columns: `cand_id, source_path, sequence, structure_path, structure_format, source_job_id`
 - Expected size: 1000–1500 candidates
+
+**各路径 structure 格式说明（`structure_path` + `structure_format` 两列）：**
+
+| 路径 | structure_path 内容 | structure_format | 说明 |
+|------|-------------------|-----------------|------|
+| Path A (BoltzGen) | BoltzGen 输出 CIF（含 VHH + 抗原复合物） | `cif` | 可直接用于 L2.5 hotspot prescreen |
+| Path B (Germinal) | Germinal 内置 AF2 输出 PDB（含复合物） | `pdb` | 可直接用于 L2.5 hotspot prescreen |
+| Path C (IgGM) | IgGM 输出 PDB（含 VHH + 抗原复合物） | `pdb` | 可直接用于 L2.5 hotspot prescreen |
+| Path D (RFdiff+MPNN) | RFdiffusion 骨架 PDB（含 VHH + 抗原，Chain B = binder） | `pdb` | AbMPNN 只输出序列，结构复用 RFdiffusion 骨架；L2.5 以骨架做 hotspot 判断，L3 之后才有序列特异性复合物结构 |
+
+**步骤注意：** L2.5 `hotspot_prescreen.py` 支持读取 `structure_format` 列自动选择解析器（CIF/PDB 均兼容）。Step 3.0 ibex 仅需 `sequence` 列，与 `structure_path` 无关。
 
 ### Step 2.dedup — MMseqs2 sequence deduplication
 
@@ -361,7 +388,7 @@ python ~/protein-design-utils/vhh/hotspot_prescreen.py \
   --hotspots inputs/hotspots.json \
   --antigen-chain {TARGET_CHAIN} \
   --threshold {L2P5_DISTANCE_THRESHOLD} \
-  --min-contacts {L2P5_HOTSPOT_MIN_CONTACTS} \
+  --min-contacts {L2P5_HOTSPOT_MIN_CONTACTS_TRACK_A} \
   --out {RESULTS_DIR}/l2p5_prescreen.csv
 ```
 
@@ -450,6 +477,11 @@ python ~/protein-design-utils/vhh/track_b_cluster.py \
 
 **默认推荐：** 2-model = **Chai-1 + AF2m**（Protenix v2 权重当前下架，Chai-1 是稳定替代）。
 
+> ⚠️ **Path A（BoltzGen）专用规则：L3 中禁止使用 Boltz-2。**
+> BoltzGen 内部的 `folding` 步骤已经用 Boltz-2（`boltz2_conf_final.ckpt`）对同一批序列做过一次结构预测。L3 再跑 Boltz-2 是同一模型对同一序列的重复预测，结果高度相关，不提供独立验证信号。
+> - **2-model**：Chai-1 + AF2m
+> - **4-model**：Chai-1 + Protenix + AF2m（3 个复合物模型，阈值 3/3；ibex Step 3.0 作前置单体 pre-filter，不计入复合物共识，不产生 ipSAE）
+
 ---
 
 ### Step 3.0 — Ibex VHH monomer sanity check (cheap pre-filter)
@@ -458,13 +490,18 @@ python ~/protein-design-utils/vhh/track_b_cluster.py \
 
 - Goal: cheaply 剔除明显坏 scaffold（畸形 CDR loop / 框架塌陷），省下 4 模型复合物预测的算力
 - Input: batch of VHH sequences as monomers (apo mode)
-  - Build `inputs/ibex_batch.fasta` from `{RESULTS_DIR}/gen/merged_pool.csv` (sequence column)
-  - Pass entire FASTA in a single `ibex_predict_batch` call — avoids per-candidate API round-trip overhead
+  - Build CSV string from `{RESULTS_DIR}/gen/merged_pool.csv`（列：`id,fv_heavy,fv_light`；VHH 的 fv_light 留空）：
+    ```
+    id,fv_heavy,fv_light
+    cand_001,EVQLVES...,
+    cand_002,EVQLVES...,
+    ```
+  - Pass as `csv_content` to `ibex_predict_batch` — avoids per-candidate API round-trip overhead
 - Filter criteria:
   - CDR-H3 RMSD vs nearest germline reference > 4.0 Å → drop (loop 不收敛)
   - Overall pLDDT < 70 → drop (单体本身建模失败)
 - Output: `{RESULTS_DIR}/val/ibex_monomer/sanity_pass.csv`
-- License caveat: Ibex (Genentech/Prescient Design) is **non-commercial only** per `feedback_ibex_mcp.md`. For internal R&D use only; do not embed in 商用产品输出
+- License caveat: Ibex (Genentech/Prescient Design) is **non-commercial only** per `reference_mcp_tools.md`. For internal R&D use only; do not embed in 商用产品输出
 - Expected attrition: ~10–20% of merged pool drops here
 
 **Implementation note:** if `ibex_predict_batch` is unavailable (schema mismatch or job limit), fall back to `ibex_predict` single-call loop — log the fallback in `{RESULTS_DIR}/val/ibex_monomer/run.log`.
@@ -480,7 +517,8 @@ python ~/protein-design-utils/vhh/track_b_cluster.py \
 
 **Tool:** `mcp__boltz2_mcp__boltz2_predict_structure`
 
-- Output: `{RESULTS_DIR}/val/boltz2/`
+- **Path A（BoltzGen）候选跳过本步骤**（BoltzGen 内部已用 Boltz-2 做过折叠，重复预测无独立信号；见 L3 Path A 专用规则）。对 Path A 候选在提交前按 `source_path` 过滤掉即可。
+- Output: `{RESULTS_DIR}/val/boltz2/`（仅含 Path B / C / D 候选）
 
 ### Step 3.3 — Protenix prediction
 
@@ -502,7 +540,8 @@ python ~/protein-design-utils/vhh/track_b_cluster.py \
 - Compute ipSAE per model per candidate
 - **L3 filter threshold（按模式和路径）：**
   - **2-model 模式：** 所有路径需 2/2 通过（IgGM 不放宽，因为只有两个模型时放宽至 1/2 过于宽松）
-  - **4-model 模式：** BoltzGen / Germinal / RFdiffusion 路径需 `L3_MIN_MODELS_PASS`（default 3/4）；IgGM 路径放宽至 `L3_MIN_MODELS_PASS_IGGM`（default 2/4）
+  - **4-model 模式（Path B / C / D）：** Germinal / RFdiffusion 路径需 `L3_MIN_MODELS_PASS`（default 3/4）；IgGM 路径放宽至 `L3_MIN_MODELS_PASS_IGGM`（default 2/4）
+  - **4-model 模式（Path A，BoltzGen）：** ibex 是单体预测器，不产生 ipSAE，无法参与复合物共识计算。Path A 实际运行 **3 个复合物模型**（Chai-1 + Protenix + AF2m），共识阈值为 **3/3**（ibex Step 3.0 通过作为前置条件，不计入此处共识）。
   - IgGM candidates passing the relaxed threshold are tagged `relaxed_filter=True` in output CSV for downstream tracking
 - **Do NOT compare ipTM/ipSAE absolute values across models** — only within-model ranks
 - Output: `{RESULTS_DIR}/val/consensus_ranked.csv`
@@ -544,16 +583,15 @@ binding_quality_score = (
 
 **Tool:** `modal run modal_af2rank.py`
 
-**Default behavior:** Step 3.4 (AF2m multimer) is a standard pipeline step and always runs. When AF2m ran in Step 3.4, **always run AF2Rank at zero extra compute** — reuse Step 3.4 outputs directly. No conditional check required.
+**始终运行，零额外算力**：Step 3.4（AF2m multimer）是标准步骤且总是执行，AF2Rank 直接复用其输出，无需重新提交。不存在"是否运行"的条件判断。
 
-**Non-standard case (AF2m explicitly disabled):** Only trigger a fresh AF2Rank run if ANY of the following signals are present:
-- Ibex L3.0: rejection rate (candidates dropped by Step 3.0 / total input to Step 3.0) > 30% — indicates VHH monomer fold is broadly unstable across the pool. **Use the Step 3.0 run log's rejection count**, not the current (post-filter) pool pLDDT distribution, which no longer contains dropped candidates.
-- ipSAE step 3.5: Spearman rank correlation with other models < 0.4 (interface signal unreliable)
-- Otherwise: **skip AF2Rank**, proceed directly to Step 3.7
+**同步检查两个 pool 质量指标**（无论 AF2m 是否正常运行，均应在 Step 3.6 完成后核查）：
+- **Ibex 拒绝率**（Step 3.0 被删候选数 / Step 3.0 输入总数）> 30% → pool 整体 VHH 单体折叠质量差，AF2Rank 结果需重点审阅；考虑回 L2 调整生成参数。**用 Step 3.0 run log 的拒绝计数**，不用过滤后的 pool pLDDT 分布（后者已不含被删候选）。
+- **ipSAE Spearman 秩相关**（Step 3.5 各模型间）< 0.4 → 界面信号不可靠，AF2Rank 可提供额外的结构自洽性参考；同时回查 L3 threshold 是否过松。
 
-**Rationale:** ipSAE (Step 3.5) covers complex interface quality; AF2Rank covers VHH monomer fold self-consistency. They are complementary, not redundant. Since AF2m (Step 3.4) runs by default, AF2Rank is essentially always free — the conditional path only matters if AF2m is explicitly removed from the pipeline.
+**Rationale:** ipSAE（Step 3.5）覆盖复合物界面质量；AF2Rank 覆盖 VHH 单体折叠自洽性，两者互补。
 
-- Output: `{RESULTS_DIR}/val/af2rank_filtered.csv` (or skipped — mark in run log)
+- Output: `{RESULTS_DIR}/val/af2rank_filtered.csv`
 
 ### Step 3.7 — IP / structural similarity annotation (foldseek)
 
@@ -567,7 +605,7 @@ binding_quality_score = (
   - TM-score > 0.7 (structural similarity only, CDR3 divergent) → flag `ip_risk=LOW` (convergent VHH fold is expected and acceptable; no action needed)
   - Otherwise → `ip_risk=NONE`
 - **Rationale:** VHH framework folds converge to a small structural repertoire — TM-score > 0.7 against SAbDab is normal and does NOT indicate quality problems. Dropping on structural similarity alone would remove candidates with validated scaffold geometries. Only sequence-level CDR3 identity raises genuine IP concerns.
-- **Hard drop** (only case): TM-score > 0.95 AND CDR3 identity > 90% to an existing therapeutic VHH in clinical trials (query via `claude_ai_Clinical_Trials` if flagged) — this indicates near-copy of a clinical asset
+- **Hard drop** (only case): TM-score > 0.95 AND CDR3 identity > 90% to an existing therapeutic VHH in clinical trials (query via `WebSearch` on ClinicalTrials.gov if flagged) — this indicates near-copy of a clinical asset
 - Output: `{RESULTS_DIR}/val/ip_annotated.csv`
 
 ### Layer 3 gate
@@ -610,12 +648,14 @@ Expected funnel: 1000–1500 → ~200–300 candidates enter Layer 4.
 
 ### Step 4.3 — AbMPNN sequence-structure consistency scoring
 
-**Tool:** `mcp__ligandmpnn_mcp__ligandmpnn_design` (scoring mode, `score_only=True`)
+**Tool:** `mcp__ligandmpnn_mcp__ligandmpnn_design` (scoring mode, `calc_score=True`)
 
-**Rationale:** ESM2/ESM-C PLL 对 CDR 区域无效——通用蛋白语言模型会因 CDR 高度可变而给低分，但这是 CDR 的正常特征，不是质量差。AbMPNN（SAbDab 抗体结构训练）能正确理解 CDR 变异空间，给出结构条件化的序列合理性评分。
+**Rationale:** ESM-2 PLL 对 CDR 区域无效——通用蛋白语言模型会因 CDR 高度可变而给低分，但这是 CDR 的正常特征，不是质量差。AbMPNN（SAbDab 抗体结构训练）能正确理解 CDR 变异空间，给出结构条件化的序列合理性评分。
 
-- Input: each candidate's CIF + sequence (structure-conditioned scoring)
-- **所有 4 条路径统一**在 L3 预测复合物结构（Boltz-2 preferred for stability，fallback Chai-1）上跑 `score_only=True`
+- Input: each candidate's **PDB**（不接受 CIF；CIF 须先用 `Bio.PDB.PDBIO()` 转换）+ sequence (structure-conditioned scoring)
+- **L3 复合物结构来源（按路径分）**，均在该结构上跑 `calc_score=True`：
+  - **Path B / C / D 候选**：Boltz-2 预测结构 preferred（稳定性好），fallback Chai-1
+  - **Path A（BoltzGen）候选**：禁止用 Boltz-2（BoltzGen 内部已用 Boltz-2 折叠，同模型重复无独立信号）→ 使用 **Chai-1** 预测结构
 - **Path D 不复用 D2 分数**：D2 的 AbMPNN 是在 RFdiffusion 骨架（pre-L3，无抗原）上打的，度量"序列与骨架吻合度"；L4.3 需要的是"序列与复合物界面的吻合度"——两者不等价，不可替代
 - Metric: length-normalized log-likelihood (`ll_fullseq` / sequence length)
 - Drop bottom `L4_ABMPNN_LL_MIN_PERCENTILE` (default: below median)
@@ -635,13 +675,16 @@ Expected funnel: 1000–1500 → ~200–300 candidates enter Layer 4.
 
 **Tools:** `mcp__netMHCpan_mcp__predict_protein_epitopes`, `mcp__netMHCIIpan_mcp__predict_protein_epitopes`
 
-**This step is non-optional per `feedback_immunogenicity_check.md`.**
+**This step is non-optional per `reference_vhh_max_success_skill.md`.**
 
-- MHC-I: scan full VHH sequence against common HLA-A/B/C panel
+- MHC-I allele panel: `HLA-A02:01,HLA-A24:02,HLA-B07:02,HLA-B35:01`（覆盖主要人群）
 - MHC-II: scan full VHH sequence against common HLA-DRB1 panel
-- **Drop candidates with any strong binder (rank < `L4_MHC_RANK_THRESHOLD`) within CDR regions**
-- Weak binders (rank 2–10%) in FR are tolerated
+- **Strong Binder (rank ≤0.5%)**: 高风险，CDR 区出现则 drop；FR 区出现标注
+- **Weak Binder (rank ≤2.0%)**: 中风险，FR 区可容忍，CDR 区降档考察
+- CDR Strong Binder 比 FR Strong Binder 更值得关注（FR 是种系序列，已有免疫耐受）
+- **Drop candidates with any CDR Strong Binder (rank ≤0.5%)**
 - Expected reduction: 50–70 → ~30–50
+- **CLI fallback**（无 MCP 时）：`python3.12 ~/biomodals/modal_netmhcpan.py --mode protein --input-fasta seq.fasta --allele "HLA-A02:01,HLA-A24:02,HLA-B07:02,HLA-B35:01"`
 
 ### Step 4.6 — De novo glycosylation sequon check
 
@@ -655,30 +698,42 @@ Expected funnel: 1000–1500 → ~200–300 candidates enter Layer 4.
 
 ### Step 4.7 — Multi-objective Pareto selection
 
-**Tool:** `~/protein-design-utils/vhh/pareto_select.py`
+**Tool:** `~/protein-design-utils/vhh/pareto_L4_ranker.py`
 
-**Goal:** 避免单一加权分数掩盖真实 tradeoff。在"结合质量"和"可开发性"两个正交维度上用 Pareto front 选出非劣候选，确保进入 L5 的候选没有在任一维度上被其他候选全面碾压。
+**Goal:** 避免单一加权分数掩盖真实 tradeoff。用 7 目标 Pareto 非支配分层保留 borderline 候选，并输出生成层反馈信号供下一轮 campaign 调整各路径配额。
 
-**三个 Pareto 目标（均为最大化方向）：**
+**Hard pre-filter（直接删，不入 Pareto）：**
+- `anarci_pass == 0`
+- `cdr3_len` ∉ [8, 22]
+- `cdr3_cys_count` 为奇数（VHH 双硫桥 parity 规则）
 
-| 维度 | 来源列 | 含义 |
-|------|--------|------|
-| `binding_quality_score` | L3.5 加权复合分 | 结合质量（ipSAE 0.6 + dSASA 0.4） |
-| `humanness_score` | L4.1 ANARCI `v_identity` | FR 人源化程度（免疫原性代理指标） |
-| `protein_sol` | L4.2 protein-sol 输出 | 溶解度 |
+**7 个 Pareto 目标：**
+
+| 来源列 | 方向 | 来源步骤 |
+|--------|------|---------|
+| `consensus_iptm` | max | L3.5 共识 ipTM |
+| `cdr3_dsasa_ratio` | max | L3.5b CDR3 界面参与度 |
+| `protein_sol` | max | L4.2 protein-sol |
+| `ddG_max` | min | L4.4 Stability Oracle ΔΔG max |
+| `mhc_min_rank` | max | L4.5 netMHCpan %rank（越大越非 binder） |
+| `glycan_count` | min | L4.6 N-glyco sequon 数 |
+| `humanness_score` | max | L4.1 ANARCI `v_identity` |
 
 ```bash
-python ~/protein-design-utils/vhh/pareto_select.py \
+python ~/protein-design-utils/vhh/pareto_L4_ranker.py \
   --input {RESULTS_DIR}/l4_funnel_final.csv \
-  --objectives binding_quality_score humanness_score protein_sol \
-  --out {RESULTS_DIR}/final/pareto_selected.csv
+  --outdir {RESULTS_DIR}/final/pareto/ \
+  --top-n-fronts {L4_PARETO_MAX_RANK}
 ```
 
-- 输出列：`pareto_rank`（1 = 第一 Pareto 前沿，即非劣集；2 = 第二前沿，依次类推）
-- 第一前沿候选：不存在任何其他候选在三个维度上全部优于它
-- 进入 Layer 5 的候选：`pareto_rank <= L4_PARETO_MAX_RANK`（默认 2，兜底确保不少于 10 个）
+**输出（均写入 `--outdir`）：**
+- `pareto_rank.csv` — 全部候选 + `rank` 列（-1 = hard filter 删除）
+- `pareto_front.csv` — rank 0（第一 Pareto 前沿）
+- `pareto_selected.csv` — scaffold-balanced 采样后最终列表（进 L5）
+- `generation_feedback.json` — 各 L2 路径/scaffold 占比 + 下一轮配额 delta 建议
+
+- 进入 Layer 5 的候选：`rank <= L4_PARETO_MAX_RANK`（默认 2，兜底确保不少于 10 个）
 - Expected: ~25–40 → 15–25 candidates（视前沿分布而定）
-- Note: `pareto_select.py` 存放于 `~/protein-design-utils/vhh/`，使用 brute-force 非劣排序（候选数 <200 时无需 NSGA-II）
 
 ### Layer 4 gate
 
@@ -733,29 +788,48 @@ Expected final output: 10–20 candidates for experimental testing.
 
 ## Layer 6 — Experimental Planning & Reporting
 
-### Step 6.1 — Cell-free expression planning (if applicable)
+### Step 6.1 — Report generation
 
-**Tool:** `adaptyv:cell-free-expression` skill
+**Tools:** `modal run modal_pdb2png.py`, `~/protein-design-utils/vhh/generate_report.py`
 
-- Review top candidates for CFPS compatibility
-- Flag disulfide-rich or aggregation-prone sequences
-- Suggest DNA template design
+**Sub-step A — Render structure images (optional but recommended):**
+```bash
+modal run modal_pdb2png.py \
+  --input-dir {RESULTS_DIR}/mature/ \
+  --output-dir {RESULTS_DIR}/final/pngs/ \
+  --top-n 10
+```
 
-### Step 6.2 — SPR/BLI experimental design
+**Sub-step B — Generate report files:**
+```bash
+python ~/protein-design-utils/vhh/generate_report.py \
+  --results-dir {RESULTS_DIR} \
+  --campaign {JOB_NAME}
+```
 
-**Tool:** `adaptyv:binding-characterization` skill
+**Outputs:**
+- `{RESULTS_DIR}/final/top_candidates.html` — Interactive two-tab report:
+  - **汇报 Tab**: pipeline funnel bars + path contribution, Top candidate decision cards (P1/P2/P3 + 4-dimension signal lights), expandable parameter comparison table (click any dimension cell to reveal raw metrics)
+  - **实验员 Tab**: minimal sequence table (full sequence + CDR1/2/3 + synthesis priority), suitable for direct handoff to synthesis team
+- `{RESULTS_DIR}/final/top_candidates.md` — Static Markdown (Section 1: director summary + funnel; Section 2: lab sequence table with IMGT CDR annotations)
 
-- Platform selection (SPR vs BLI) based on expected KD range
-- Surface chemistry and analyte flow parameters
-- Kinetic vs affinity measurement strategy
+**4 parameter dimensions (expandable in HTML):**
 
-### Step 6.3 — Report generation
+| Dimension | Default display | Raw metrics (on expand) |
+|-----------|----------------|------------------------|
+| 结合质量 | ●●●●● (1-5 dots) | model consensus N/4, ipSAE rank %, dSASA ratio |
+| 可开发性 | ●●●●○ (1-5 dots) | protein-sol, ΔΔG max, AbMPNN LL |
+| 安全性 | ✓/⚠/✗ | MHC worst rank %, humanness %, CDR glycan count |
+| 亲和力 | KD nM or Pareto rank | MBER KD, Pareto rank |
 
-**Tools:** `modal run modal_pdb2png.py`, `exploratory-data-analysis` skill
+**Synthesis priority rules:**
+- P1: Pareto rank 1 AND safety ✓
+- P2: (Pareto rank 2 AND safety ≠ ✗) OR (Pareto rank 1 AND safety ⚠)
+- P3: all other L4 survivors
 
-- Render top 10 VHH-target complexes as publication-quality PNGs
-- Generate full funnel CSV: `{RESULTS_DIR}/final/funnel_full.csv` (every candidate across every layer)
-- Generate top-table: `{RESULTS_DIR}/final/top_candidates.md` with sequence, L3 consensus rank, L4 developability flags, L4.7 Pareto rank, L5 affinity, ESM2 suggestions
+**Note:** ESM2 suggestions (Step 5.4) are intentionally excluded from the report.
+Unvalidated suggestions would confuse the synthesis team about which sequence to order.
+If an ESM2 suggestion is adopted, it must re-enter L3/L4 validation as a new candidate.
 
 ---
 
@@ -776,11 +850,11 @@ Expected final output: 10–20 candidates for experimental testing.
 
 **校准动作（首次 campaign L3 完成后立即执行）：**
 ```bash
-python ~/protein-design-utils/vhh/calibration_output/calibrate_tier1.py \
-  --l3-results {RESULTS_DIR}/val/consensus_ranked_dsasa.csv \
-  --out ~/protein-design-utils/vhh/calibration_output/tier1_calibrated.json
+python ~/protein-design-utils/vhh/calibrate_thresholds.py \
+  --csv {RESULTS_DIR}/val/consensus_ranked_dsasa.csv \
+  --out-dir ~/protein-design-utils/vhh/calibration_output/
 ```
-（calibrate_tier1.py 存放于 `~/protein-design-utils/vhh/calibration_output/`，计算 dSASA p25 + ipSAE cut 推荐值，输出 JSON 以便手动确认后更新 skill config）
+（`calibrate_thresholds.py` 存放于 `~/protein-design-utils/vhh/`，计算 dSASA p25 + ipSAE cut 推荐值，输出写入 `--out-dir` 目录（自动创建），手动确认后更新 skill config）
 
 ### Tier 2 — 需要实验数据后校准（软过滤直到获得反馈）
 
@@ -823,8 +897,8 @@ python ~/protein-design-utils/vhh/calibration_output/calibrate_tier1.py \
 
 1. **FR/CDR are jointly optimized** (`domain_protein_design_gotchas.md` #1): do not transplant CDRs across FRs. Use strict FR mode in Path D from the start.
 2. **Cross-model ipTM is not comparable** (`domain_protein_design_gotchas.md` #2): Layer 3 consensus uses rank agreement, never absolute ipTM comparison across models.
-3. **Immunogenicity scan is mandatory** (`feedback_immunogenicity_check.md`): Step 4.5 cannot be skipped for therapeutic VHH.
-4. **AbMPNN (not SolubleMPNN) for VHH** (`feedback_vhh_sequence_design.md`): Path D uses AbMPNN (`model_checkpoint: "abmpnn"`) — antibody-fine-tuned ProteinMPNN — with strict FR mode; protein-sol downstream filter in L4. Fallback to `proteinmpnn_v_48_020` if AbMPNN weights unavailable.
+3. **Immunogenicity scan is mandatory** (`reference_vhh_max_success_skill.md`): Step 4.5 cannot be skipped for therapeutic VHH.
+4. **AbMPNN (not SolubleMPNN) for VHH** (`reference_vhh_max_success_skill.md`): Path D uses AbMPNN (`model_checkpoint: "abmpnn"`) — antibody-fine-tuned ProteinMPNN — with strict FR mode; protein-sol downstream filter in L4. Fallback to `proteinmpnn_v_48_020` if AbMPNN weights unavailable.
 5. **MBER outputs MUST be re-validated** (Step 5.2): MBER's AF2-optimized outputs cannot bypass 4-model consensus.
 
 ---
@@ -864,5 +938,6 @@ python ~/protein-design-utils/vhh/calibration_output/calibrate_tier1.py \
 ## Cleanup
 
 ```bash
+source ~/claude-project/ProteinMCP/.venv/bin/activate
 pskill uninstall vhh_max_success_design
 ```
