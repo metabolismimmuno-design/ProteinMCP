@@ -5,7 +5,7 @@ description: Maximum-success-rate VHH (nanobody) de novo design pipeline. 4 orth
 
 # VHH Max-Success Design Skill
 
-> **Last updated:** 2026-05-12 — (23) **S2+S3+S7 核心排序重写**：① 新建 scripts/config.py 集中 L3.A/L3.B 模型矩阵 + binding_composite 权重 + flag 降权因子（SKILL.md 不再列具体模型分配，单一 source-of-truth）；② Step 3.5 重写为 5-step 流水线：ipTM chain-pair<0.5 hard drop → 5-seed CDR3 Cα 连通分量聚类（主簇≥3/5）→ 簇内 ipSAE_min → 跨模型 ipSAE_min（min-min，Overath 2025 F1=0.61 路径校准前 floor=0.50）→ AntiConf (pTM × pDockQ2，Ünsal 2026) 簇内代表挑选；③ Step 4.4 binding_composite 重写为 5 分量加权（ipSAE 0.40 / cluster_size 0.20 / AntiConf 0.15 / dSASA 0.15 / cdr_dominance 0.10）+ 4 个 flag 乘性降权（cdr_dominance_low 0.7 / anticonf_low 0.85 / pose_diverged 0.5 / ipsae_min_min_below_floor 0.7）；④ 下游 filter_dsasa.py / hotspot_prescreen.py 加 --cif-path-col 参数读 representative_cif_path_primary 列。详细 spec/plan 见 docs/superpowers/{specs,plans}/2026-05-12-s2s3s7-*.md。 (22) **Step 2.negctrl 扩展为双 null**（S5 of 3.5 framework rewrite）：原 scramble CDR3 null（Sub-step A/B）保留不变；新增 Sub-step C/D：**unrelated antigen null** — 每候选 × decoy panel（3–10 个真实无关 PDB）× 1 seed → ipSAE_min null 分布。理由：Greiff Champloo 2026 实测 confidence metrics 不区分 cognate vs non-cognate，两个 null 失败模式互补（scramble 查 generator failure / 序列侥幸；unrelated antigen 查"万能 sticky" VHH）。Decoy panel 一次性建库 `inputs/decoy_panel/`，所有项目复用，要求 BLAST E<1e-3 排除同源、fold 多样、避开 HSA/lysozyme 等 sticky 蛋白、大小 ±50% 真靶点。算力控制：unrelated null 只对 L3.A 幸存者（~150 候选）跑，3 decoy × 1 seed × 2 model ≈ 900 预测（L3.B base 的 1.2×）。`path_thresholds.json` schema 扩展为 `{scramble_floor, unrelated_floor}` 双门槛，L3 gate 要求双 95% 分位均过。新增 config: `DECOY_PANEL_DIR / DECOY_N_PANEL / DECOY_SEEDS_PER_CANDIDATE / UNRELATED_NULL_PERCENTILE`；新增工具占位：`build_decoy_panel.py / submit_unrelated_null.py`；扩展工具：`calibrate_neg_control_thresholds.py` 增加 `--unrelated-scores` 参数。 (21) **AF2m 移出 L3 验证器**（S1 of 3.5 framework rewrite）：依据 SNAC-DB (Sanofi 2026) per-model Nb-Ag 数据，AlphaFold2.3-multimer 在 NANOBODY-antigen 上 Rank-1 仅 9.9%（与 OpenFold-3p2 并列最差），Protenix-v1 23.8%（最高）。前版 "Chai-1 + AF2m" 2-model 推荐基于 "AF2 vs AF3 架构正交" 推理 + Ünsal 2026 混合 Ab+Nb 数据集 "AF2 整体胜" 结论，但 Ünsal 数据集以经典抗体为主；VHH 子集上 AF2m 实测垫底。架构正交性救不了 VHH 任务上 AF2m 的实测垫底。**新 2-model 默认 = Chai-1 + Boltz-2**（Protenix v2 下架期间）；Protenix v2 回归后升级为 **Protenix + Boltz-2**；3-model 高把握 = **Protenix + Boltz-2 + Chai-1**（全 AF3 家族，误差相关性通过 framework-level robustness 补偿——pose convergence + min-min + 后续 3.5.1 unrelated antigen null + 3.5.2 跨模型 epitope Jaccard）。Step 3.4 (AF2m) 和 Step 3.6 (AF2Rank) 标注 deprecated；modal_alphafold.py / modal_af2rank.py 不再列为标准工具。Path A (BoltzGen) 因内部已用 Boltz-2，L3 实际可用模型仅 Chai-1 + Protenix（强制 2-model 上限）。MBER 重验证（Step 5.2）共识门槛随之调整。 (20) **BoltzGen scaffold 库与官方对齐（Path A 关键 bug fix）**：根因——`gen_scaffold_yamls.py` 把 H2 硬编码为 Kabat 50..65（16 res），导致 BoltzGen 把 FR3 起始 β-sheet 残基（`LYADSVRG` 等）当 CDR 设计 → V_H 折叠塌陷。16F9 实测 4 scaffold × 100 = 400 designs 中 91% miss hotspot（HS=0/8），仅 2 个真接触。修复：① 新建 BoltzGen 专用库 `~/protein-design-utils/vhh/scaffolds/boltzgen_official/`（7 个官方 scaffold，Chothia loop tip + 1 buffer 标定，YAML+CIF 直接来自 HannesStark/boltzgen `example/nanobody_scaffolds/`）；② `gen_scaffold_yamls.py` 标记 deprecated for BoltzGen，仅留给 IgGM/RFantibody/Germinal（这些工具不复用 BoltzGen yaml，H2 边界不影响）；③ SKILL config 新增 `VHH_SCAFFOLDS_BOLTZGEN`，旧 `VHH_SCAFFOLDS` 保留给其他路径；④ Path A Step A0 改为复制 `boltzgen_official/yaml/` 到 `inputs/boltzgen_scaffolds/`；⑤ 新增 scaffold 纪律：禁止套公式生成 BoltzGen yaml，必须 PyMOL/ANARCI 视检 loop tip。 (18) Bug fix: Step 2.mhcfilter FR hard-drop 规则修正——central scaffold library 的 FR 保守序列已有临床验证，MHC 命中应 flag 不 hard-drop；仅非 scaffold 来源的新引入 FR 序列在 ≥3 allele SB 时才 hard-drop；同步更新 Hard Drop 总表和 failure_reason 表。触发条件：16F9 smoke test 中 8coh_A/7dv4_B 因 scaffold FR2 MHC-II 信号被整体删除，逻辑矛盾（临床在用 scaffold 被计算预测推翻）。 (17) 9处审阅改进：① L3.A Path A改用Chai-1（Protenix是AF3复刻，与Boltz-2高度相关）；② Step 2.negctrl路径模型对齐（Path A→Chai-1，B/C/D→Boltz-2）；③ L3.A Pose收敛改为per-track（Track A:3/3严格，B_keep:2/3宽松）；④ Layer 2.5 Track B增加Boltz-2独立ipTM复测（禁用生成器自报ipTM）；⑤ L3.B 2-model共识改为双门控+加权排名（AND投票→连续分数提升recall）；⑥ Pareto结合三联指标合并为binding_composite（8目标→6目标，减少强耦合目标竞争）；⑦ Ibex单体预筛从Step 3.0提前至Step 2.ibex（Layer 2末尾，hotspot预筛之前，防止fold塌陷浪费hotspot检查）；⑧ L5.2 MBER后验证简化（2-model+3seeds，ANARCI/AbMPNN承袭，ΔΔG必须重跑）；⑨ 路径代表配额从20%提至30%，多样性从30%降至20%。 (19) 目录结构修正：`gen/` 只存放模型生成输出（boltzgen/iggm/rfantibody），所有过滤/验证产物统一移入 `val/`：序列过滤链（seq_aa/seq_sol/seq_filtered/rejected）→ `val/filter/`，多样性诊断报告 → `val/diversity/`，ibex PDB → `val/ibex_monomer/pdb/`；废弃 `gen/debug/`、`gen/rejected/`、`gen/diversity/` 这三个混用目录（触发条件：16F9 smoke test 清理时发现逻辑混乱）。(16) 文件命名重构：① Layer 2 序列过滤链中间文件（seq_aa / seq_sol）移入 `val/filter/`，主链只保留 4 个文件（merged→dedup→seq_filtered→l3_input）；② Layer 4 采用列追加模式，4.1→4.3 共用 `l4_scored.csv`（不建中间文件），l4_funnel_final.csv 废弃；③ Pareto 输出合并为单文件 `final/pareto_results.csv`（含 pareto_rank 列），删除 pareto_rank/pareto_front/pareto_selected 三文件；④ Pareto 目标表来源标注更新（protein_sol/mhc_min_rank/glycan_count 改为 Layer 2 来源）。(15) L4 重构：① protein-sol 从 L4.2 提前至 Step 2.solfilter（序列级，L3 之前 fail-fast）；② MHC I+II 从 L4.5 提前至 Step 2.mhcfilter（治疗安全性门控，L3 之前 fail-fast）；③ Step 4.6 CDR 糖基化 delta 检查删除（Step 2.seqfilter 绝对门控已覆盖，到 L4.6 时 CDR 必然无 NXS/T）；FR 糖基化 delta 检查合并入 Step 2.seqfilter 作第 7 项（flag，不硬删，进 Pareto glycan_count）；④ L4 步骤重编号：4.3 AbMPNN→4.2，4.4 StabilOracle→4.3，4.7/4.7b Pareto→4.4/4.4b，4.8→4.5；⑤ L4 步序说明更新；⑥ Layer 3 gate 和 Layer 4 gate 漏斗数字更新；seqfilter 输出重命名为 seq_aa_filtered_pool.csv，mhcfilter 最终产出 seq_filtered_pool.csv（下游引用不变）。(14) 新增 Step 3.5a Hotspot re-verification：在 L3.B 高质量共折叠结构上重跑 hotspot_prescreen（Step 3.5 ipSAE 之后、Step 3.5b dSASA 之前）；L3 全流程原本无 epitope 特异性检查（ipSAE/dSASA/clash 只验证结合质量，不验证结合位置），此步填补缺口；Hard drop，不设 Track B，零额外 GPU；3.5b --input 改为读 l3b_hotspot_recheck.csv。(13) 6处 Bug 修复：① Step 2.l3pool 新增 Track A+B_keep 汇总步骤（`l3_input_pool.csv`），Step 2.negctrl 和 Step 3.0 Ibex 改读此文件（原引用 `seq_filtered_pool.csv` 会包含 L2.5 已拒绝候选，污染 negctrl 基线和 Ibex 批量提交）；② filter_dsasa.py 两次调用补全 `--input` 参数（3.5b 读 `consensus_ranked.csv`，3.5d 读 `dsasa_filter_results.csv`，输出统一为 `consensus_ranked_dsasa.csv`）；③ Step 4.6 末尾定义 `l4_funnel_final.csv`（Step 4.7 引用此文件但此前从未创建）；④ "7 个 Pareto 目标" → "8 个"（cdr_dominance_score 加入后漏改）；⑤ Step 5.1 MBER "default 50" → "default 20"（config 已改未同步）；⑥ Step 3.1 Input 改为 `l3a_pass.csv`（L3.B header 已注明但 Step 3.1 本身未更新）。(12) 6处结构性改进：① Step 2.seqfilter 新增序列预筛层（零GPU，ANARCI提前+极端电荷+非配对Cys+N-glycan+pI，L4.1改为读取此步结果）；② L3 拆分为 L3.A（粗筛 Boltz-2+Protenix 3seeds → top 150）+ L3.B（精筛，原 Steps 3.1–3.7）；③ Step 3.5b 扩展 CDR 全主导度（cdr_dominance_score，CDR1+2+3/total dSASA ≥0.5）+更新 binding_quality_score 为3/4分量公式；④ Step 3.5d 新增界面 clash 精确检查（Cβ-Cβ<3.4Å，≤3对）；⑤ Layer 4.8 人工审查门控（合成前必须，渲染+逐候选清单+review_notes.md）；⑥ Step 4.7b 改为24/48/96组合策略（高分50%+多样性30%+路线代表20%）。新增配置参数：SEQ_PI_MIN/MAX、SEQ_NET_CHARGE_MIN、L3A_SEEDS/PASS_N、L3_CLASH_MAX_PAIRS、L3_CDR_DOMINANCE_MIN、FINAL_CANDIDATE_TARGET/TOP_SCORING/DIVERSITY/PATH_REP_FRAC。新增待实现工具：seq_prefilter.py、l3a_filter.py、build_final_candidates.py、apply_review_decisions.py；filter_dsasa.py 需新增 --all-cdrs/--mode clash 参数。(11) 6处改进合入：① Step 2.dedup 改为两阶段（路线内80% CDR3聚类 + 跨路线保留独立hit）；② Step 2.negctrl 新增路线特异性阈值校准（每路线5个scramble负控）；③ L3 加入抗原多聚体状态强制检查；④ L3 可选multi-seed pose convergence模式（L3_MULTI_SEED_MODE）；⑤ Step 3.2 RFantibody分数分布外偏低警告；⑥ Step 4.7b 路线配额强制执行（RFAb:4/BoltzGen:2/Germinal:2/IgGM:2）；新增配置参数：L3_MULTI_SEED_MODE/COUNT、L3_POSE_CONVERGENCE_RMSD/MIN_SEEDS、TOP10_PATH_QUOTA；新增待实现工具：merge_path_pools.py、generate_neg_controls.py、calibrate_neg_control_thresholds.py、enforce_path_quota.py。(10) Scaffold 库升级：从 4 → 8 临床代表（TheraSAbDab + Evers et al. mAbs 2025 文献挖掘，含 Netakimab/Porustobart/Erfonrilimab 新增；中央库 `~/protein-design-utils/vhh/scaffolds/`，胚系 IGHV3-23/IGHV3-7，人源化 71–85%）。(9) L3 结构预测模式重构：新增"2-model vs 4-model"选择决策提示；明确 AF3 家族（Chai-1/Boltz-2/Protenix）误差相关性高、AF2m 正交性最强；推荐默认 2-model = Chai-1 + AF2m（Protenix v2 上线后升级为 ①）；共识阈值随模式调整（2/2 vs 3/4）。(8) 冗余修复：① Step 2.dedup 删除错误 MMseqs2 MCP 引用；② Step 3.6 AF2Rank 条件逻辑改为"AF2m 默认运行 → 总是免费复用"；③ Step 1.4/4.6 glycoengineering 加 input 标注；④ "5路径" → "4路径"；⑤ L4.3 AbMPNN 取消 Path D 复用 D2 分数捷径，4 路径统一在 L3 复合物结构重打分。(7) Path D (BindCraft) 移出主流程：BindCraft 是通用蛋白 binder 工具，非 VHH 专用；Path B (Germinal) 是抗体优化版替代，4 路径降为标准。(1) L3.0 Ibex 改 `ibex_predict_batch`; (2) L4 顺序调整（protein-sol 升至 4.2，AbMPNN 降至 4.3）; (3) Step 2.dedup MMseqs2 去重; (4) Step 2.diversity 5路径多样性诊断 → 4路径; (5) Track B 三档距离判定 + 两条自动召回规则; (6) 阈值 Tier1/Tier2 分层校准. Previous: L4.2 ESM PLL → AbMPNN scoring; L3.6 AF2Rank CONDITIONAL.
+> **Last updated:** 2026-05-12 — (24) **L2/L4 分工再校准（hard drop 大幅收窄）**：原则——L2 hard drop 只保留"不可救的明确缺陷"（generator failure / 序列非法 / 结构折叠失败），可通过点突变 / surface charge engineering 缓解的项目全部降为 soft flag + 进 Pareto 自然降权。① **Step 2.seqfilter**：CDR N-glycan motif（N→Q 可救）/ 极端 pI < 4.0 或 > 10.0 / 极端净电荷 < −8，三项从 hard drop 改 soft flag，新增 `rescue_suggestion` 列；保留 hard drop 仅：CDR3 长度越界 / 未配对 Cys / ANARCI 失败。② **Step 2.solfilter**：`protein_sol < 0.45` 从 hard drop 改 soft flag（连续值已在 Pareto），实测阈值与 VHH 实际可溶性相关性弱，避免误杀 IgGM/Germinal borderline 候选。③ **Step 2.mhcfilter**：FR 多 allele MHC（非 scaffold 来源）从 hard drop 改 soft flag + `mhc_risk_score` += 2.0 强惩罚 + humanize 突变建议（FR 可定向去免疫原性，hard drop 丢 head-on 候选成本过高）。④ **Step 4.4 Pareto**：6 → 7 目标，新增 `seq_risk_count`（汇总 pI/charge soft flag），`glycan_count` 语义扩展含 CDR；attrition 期望从"10–15% + 15% + ?"全部归零，靠 Pareto 多目标自然降权。⑤ **Hard Drop / Soft Flag 总表** 同步搬家，"早期 Hard Drop"表新增"不可救原因"列，"早期 Soft Flag"表新增"rescue 路径"列。 (23) **S2+S3+S7 核心排序重写**：① 新建 scripts/config.py 集中 L3.A/L3.B 模型矩阵 + binding_composite 权重 + flag 降权因子（SKILL.md 不再列具体模型分配，单一 source-of-truth）；② Step 3.5 重写为 5-step 流水线：ipTM chain-pair<0.5 hard drop → 5-seed CDR3 Cα 连通分量聚类（主簇≥3/5）→ 簇内 ipSAE_min → 跨模型 ipSAE_min（min-min，Overath 2025 F1=0.61 路径校准前 floor=0.50）→ AntiConf (pTM × pDockQ2，Ünsal 2026) 簇内代表挑选；③ Step 4.4 binding_composite 重写为 5 分量加权（ipSAE 0.40 / cluster_size 0.20 / AntiConf 0.15 / dSASA 0.15 / cdr_dominance 0.10）+ 4 个 flag 乘性降权（cdr_dominance_low 0.7 / anticonf_low 0.85 / pose_diverged 0.5 / ipsae_min_min_below_floor 0.7）；④ 下游 filter_dsasa.py / hotspot_prescreen.py 加 --cif-path-col 参数读 representative_cif_path_primary 列。详细 spec/plan 见 docs/superpowers/{specs,plans}/2026-05-12-s2s3s7-*.md。 (22) **Step 2.negctrl 扩展为双 null**（S5 of 3.5 framework rewrite）：原 scramble CDR3 null（Sub-step A/B）保留不变；新增 Sub-step C/D：**unrelated antigen null** — 每候选 × decoy panel（3–10 个真实无关 PDB）× 1 seed → ipSAE_min null 分布。理由：Greiff Champloo 2026 实测 confidence metrics 不区分 cognate vs non-cognate，两个 null 失败模式互补（scramble 查 generator failure / 序列侥幸；unrelated antigen 查"万能 sticky" VHH）。Decoy panel 一次性建库 `inputs/decoy_panel/`，所有项目复用，要求 BLAST E<1e-3 排除同源、fold 多样、避开 HSA/lysozyme 等 sticky 蛋白、大小 ±50% 真靶点。算力控制：unrelated null 只对 L3.A 幸存者（~150 候选）跑，3 decoy × 1 seed × 2 model ≈ 900 预测（L3.B base 的 1.2×）。`path_thresholds.json` schema 扩展为 `{scramble_floor, unrelated_floor}` 双门槛，L3 gate 要求双 95% 分位均过。新增 config: `DECOY_PANEL_DIR / DECOY_N_PANEL / DECOY_SEEDS_PER_CANDIDATE / UNRELATED_NULL_PERCENTILE`；新增工具占位：`build_decoy_panel.py / submit_unrelated_null.py`；扩展工具：`calibrate_neg_control_thresholds.py` 增加 `--unrelated-scores` 参数。 (21) **AF2m 移出 L3 验证器**（S1 of 3.5 framework rewrite）：依据 SNAC-DB (Sanofi 2026) per-model Nb-Ag 数据，AlphaFold2.3-multimer 在 NANOBODY-antigen 上 Rank-1 仅 9.9%（与 OpenFold-3p2 并列最差），Protenix-v1 23.8%（最高）。前版 "Chai-1 + AF2m" 2-model 推荐基于 "AF2 vs AF3 架构正交" 推理 + Ünsal 2026 混合 Ab+Nb 数据集 "AF2 整体胜" 结论，但 Ünsal 数据集以经典抗体为主；VHH 子集上 AF2m 实测垫底。架构正交性救不了 VHH 任务上 AF2m 的实测垫底。**新 2-model 默认 = Chai-1 + Boltz-2**（Protenix v2 下架期间）；Protenix v2 回归后升级为 **Protenix + Boltz-2**；3-model 高把握 = **Protenix + Boltz-2 + Chai-1**（全 AF3 家族，误差相关性通过 framework-level robustness 补偿——pose convergence + min-min + 后续 3.5.1 unrelated antigen null + 3.5.2 跨模型 epitope Jaccard）。Step 3.4 (AF2m) 和 Step 3.6 (AF2Rank) 标注 deprecated；modal_alphafold.py / modal_af2rank.py 不再列为标准工具。Path A (BoltzGen) 因内部已用 Boltz-2，L3 实际可用模型仅 Chai-1 + Protenix（强制 2-model 上限）。MBER 重验证（Step 5.2）共识门槛随之调整。 (20) **BoltzGen scaffold 库与官方对齐（Path A 关键 bug fix）**：根因——`gen_scaffold_yamls.py` 把 H2 硬编码为 Kabat 50..65（16 res），导致 BoltzGen 把 FR3 起始 β-sheet 残基（`LYADSVRG` 等）当 CDR 设计 → V_H 折叠塌陷。16F9 实测 4 scaffold × 100 = 400 designs 中 91% miss hotspot（HS=0/8），仅 2 个真接触。修复：① 新建 BoltzGen 专用库 `~/protein-design-utils/vhh/scaffolds/boltzgen_official/`（7 个官方 scaffold，Chothia loop tip + 1 buffer 标定，YAML+CIF 直接来自 HannesStark/boltzgen `example/nanobody_scaffolds/`）；② `gen_scaffold_yamls.py` 标记 deprecated for BoltzGen，仅留给 IgGM/RFantibody/Germinal（这些工具不复用 BoltzGen yaml，H2 边界不影响）；③ SKILL config 新增 `VHH_SCAFFOLDS_BOLTZGEN`，旧 `VHH_SCAFFOLDS` 保留给其他路径；④ Path A Step A0 改为复制 `boltzgen_official/yaml/` 到 `inputs/boltzgen_scaffolds/`；⑤ 新增 scaffold 纪律：禁止套公式生成 BoltzGen yaml，必须 PyMOL/ANARCI 视检 loop tip。 (18) Bug fix: Step 2.mhcfilter FR hard-drop 规则修正——central scaffold library 的 FR 保守序列已有临床验证，MHC 命中应 flag 不 hard-drop；仅非 scaffold 来源的新引入 FR 序列在 ≥3 allele SB 时才 hard-drop；同步更新 Hard Drop 总表和 failure_reason 表。触发条件：16F9 smoke test 中 8coh_A/7dv4_B 因 scaffold FR2 MHC-II 信号被整体删除，逻辑矛盾（临床在用 scaffold 被计算预测推翻）。 (17) 9处审阅改进：① L3.A Path A改用Chai-1（Protenix是AF3复刻，与Boltz-2高度相关）；② Step 2.negctrl路径模型对齐（Path A→Chai-1，B/C/D→Boltz-2）；③ L3.A Pose收敛改为per-track（Track A:3/3严格，B_keep:2/3宽松）；④ Layer 2.5 Track B增加Boltz-2独立ipTM复测（禁用生成器自报ipTM）；⑤ L3.B 2-model共识改为双门控+加权排名（AND投票→连续分数提升recall）；⑥ Pareto结合三联指标合并为binding_composite（8目标→6目标，减少强耦合目标竞争）；⑦ Ibex单体预筛从Step 3.0提前至Step 2.ibex（Layer 2末尾，hotspot预筛之前，防止fold塌陷浪费hotspot检查）；⑧ L5.2 MBER后验证简化（2-model+3seeds，ANARCI/AbMPNN承袭，ΔΔG必须重跑）；⑨ 路径代表配额从20%提至30%，多样性从30%降至20%。 (19) 目录结构修正：`gen/` 只存放模型生成输出（boltzgen/iggm/rfantibody），所有过滤/验证产物统一移入 `val/`：序列过滤链（seq_aa/seq_sol/seq_filtered/rejected）→ `val/filter/`，多样性诊断报告 → `val/diversity/`，ibex PDB → `val/ibex_monomer/pdb/`；废弃 `gen/debug/`、`gen/rejected/`、`gen/diversity/` 这三个混用目录（触发条件：16F9 smoke test 清理时发现逻辑混乱）。(16) 文件命名重构：① Layer 2 序列过滤链中间文件（seq_aa / seq_sol）移入 `val/filter/`，主链只保留 4 个文件（merged→dedup→seq_filtered→l3_input）；② Layer 4 采用列追加模式，4.1→4.3 共用 `l4_scored.csv`（不建中间文件），l4_funnel_final.csv 废弃；③ Pareto 输出合并为单文件 `final/pareto_results.csv`（含 pareto_rank 列），删除 pareto_rank/pareto_front/pareto_selected 三文件；④ Pareto 目标表来源标注更新（protein_sol/mhc_min_rank/glycan_count 改为 Layer 2 来源）。(15) L4 重构：① protein-sol 从 L4.2 提前至 Step 2.solfilter（序列级，L3 之前 fail-fast）；② MHC I+II 从 L4.5 提前至 Step 2.mhcfilter（治疗安全性门控，L3 之前 fail-fast）；③ Step 4.6 CDR 糖基化 delta 检查删除（Step 2.seqfilter 绝对门控已覆盖，到 L4.6 时 CDR 必然无 NXS/T）；FR 糖基化 delta 检查合并入 Step 2.seqfilter 作第 7 项（flag，不硬删，进 Pareto glycan_count）；④ L4 步骤重编号：4.3 AbMPNN→4.2，4.4 StabilOracle→4.3，4.7/4.7b Pareto→4.4/4.4b，4.8→4.5；⑤ L4 步序说明更新；⑥ Layer 3 gate 和 Layer 4 gate 漏斗数字更新；seqfilter 输出重命名为 seq_aa_filtered_pool.csv，mhcfilter 最终产出 seq_filtered_pool.csv（下游引用不变）。(14) 新增 Step 3.5a Hotspot re-verification：在 L3.B 高质量共折叠结构上重跑 hotspot_prescreen（Step 3.5 ipSAE 之后、Step 3.5b dSASA 之前）；L3 全流程原本无 epitope 特异性检查（ipSAE/dSASA/clash 只验证结合质量，不验证结合位置），此步填补缺口；Hard drop，不设 Track B，零额外 GPU；3.5b --input 改为读 l3b_hotspot_recheck.csv。(13) 6处 Bug 修复：① Step 2.l3pool 新增 Track A+B_keep 汇总步骤（`l3_input_pool.csv`），Step 2.negctrl 和 Step 3.0 Ibex 改读此文件（原引用 `seq_filtered_pool.csv` 会包含 L2.5 已拒绝候选，污染 negctrl 基线和 Ibex 批量提交）；② filter_dsasa.py 两次调用补全 `--input` 参数（3.5b 读 `consensus_ranked.csv`，3.5d 读 `dsasa_filter_results.csv`，输出统一为 `consensus_ranked_dsasa.csv`）；③ Step 4.6 末尾定义 `l4_funnel_final.csv`（Step 4.7 引用此文件但此前从未创建）；④ "7 个 Pareto 目标" → "8 个"（cdr_dominance_score 加入后漏改）；⑤ Step 5.1 MBER "default 50" → "default 20"（config 已改未同步）；⑥ Step 3.1 Input 改为 `l3a_pass.csv`（L3.B header 已注明但 Step 3.1 本身未更新）。(12) 6处结构性改进：① Step 2.seqfilter 新增序列预筛层（零GPU，ANARCI提前+极端电荷+非配对Cys+N-glycan+pI，L4.1改为读取此步结果）；② L3 拆分为 L3.A（粗筛 Boltz-2+Protenix 3seeds → top 150）+ L3.B（精筛，原 Steps 3.1–3.7）；③ Step 3.5b 扩展 CDR 全主导度（cdr_dominance_score，CDR1+2+3/total dSASA ≥0.5）+更新 binding_quality_score 为3/4分量公式；④ Step 3.5d 新增界面 clash 精确检查（Cβ-Cβ<3.4Å，≤3对）；⑤ Layer 4.8 人工审查门控（合成前必须，渲染+逐候选清单+review_notes.md）；⑥ Step 4.7b 改为24/48/96组合策略（高分50%+多样性30%+路线代表20%）。新增配置参数：SEQ_PI_MIN/MAX、SEQ_NET_CHARGE_MIN、L3A_SEEDS/PASS_N、L3_CLASH_MAX_PAIRS、L3_CDR_DOMINANCE_MIN、FINAL_CANDIDATE_TARGET/TOP_SCORING/DIVERSITY/PATH_REP_FRAC。新增待实现工具：seq_prefilter.py、l3a_filter.py、build_final_candidates.py、apply_review_decisions.py；filter_dsasa.py 需新增 --all-cdrs/--mode clash 参数。(11) 6处改进合入：① Step 2.dedup 改为两阶段（路线内80% CDR3聚类 + 跨路线保留独立hit）；② Step 2.negctrl 新增路线特异性阈值校准（每路线5个scramble负控）；③ L3 加入抗原多聚体状态强制检查；④ L3 可选multi-seed pose convergence模式（L3_MULTI_SEED_MODE）；⑤ Step 3.2 RFantibody分数分布外偏低警告；⑥ Step 4.7b 路线配额强制执行（RFAb:4/BoltzGen:2/Germinal:2/IgGM:2）；新增配置参数：L3_MULTI_SEED_MODE/COUNT、L3_POSE_CONVERGENCE_RMSD/MIN_SEEDS、TOP10_PATH_QUOTA；新增待实现工具：merge_path_pools.py、generate_neg_controls.py、calibrate_neg_control_thresholds.py、enforce_path_quota.py。(10) Scaffold 库升级：从 4 → 8 临床代表（TheraSAbDab + Evers et al. mAbs 2025 文献挖掘，含 Netakimab/Porustobart/Erfonrilimab 新增；中央库 `~/protein-design-utils/vhh/scaffolds/`，胚系 IGHV3-23/IGHV3-7，人源化 71–85%）。(9) L3 结构预测模式重构：新增"2-model vs 4-model"选择决策提示；明确 AF3 家族（Chai-1/Boltz-2/Protenix）误差相关性高、AF2m 正交性最强；推荐默认 2-model = Chai-1 + AF2m（Protenix v2 上线后升级为 ①）；共识阈值随模式调整（2/2 vs 3/4）。(8) 冗余修复：① Step 2.dedup 删除错误 MMseqs2 MCP 引用；② Step 3.6 AF2Rank 条件逻辑改为"AF2m 默认运行 → 总是免费复用"；③ Step 1.4/4.6 glycoengineering 加 input 标注；④ "5路径" → "4路径"；⑤ L4.3 AbMPNN 取消 Path D 复用 D2 分数捷径，4 路径统一在 L3 复合物结构重打分。(7) Path D (BindCraft) 移出主流程：BindCraft 是通用蛋白 binder 工具，非 VHH 专用；Path B (Germinal) 是抗体优化版替代，4 路径降为标准。(1) L3.0 Ibex 改 `ibex_predict_batch`; (2) L4 顺序调整（protein-sol 升至 4.2，AbMPNN 降至 4.3）; (3) Step 2.dedup MMseqs2 去重; (4) Step 2.diversity 5路径多样性诊断 → 4路径; (5) Track B 三档距离判定 + 两条自动召回规则; (6) 阈值 Tier1/Tier2 分层校准. Previous: L4.2 ESM PLL → AbMPNN scoring; L3.6 AF2Rank CONDITIONAL.
 
 Maximum-success-rate VHH (nanobody) de novo design pipeline. Combines **4 orthogonal generation tools** (BoltzGen / Germinal / IgGM / RFdiffusion+AbMPNN), **2-model (default) or 3-model (high-confidence) AF3-family co-folding validation** (Chai-1+Boltz-2 default; +Protenix when v2 weights available; AF2m removed after SNAC-DB 2026 Nb-Ag benchmark showed 9.9% Rank-1 success — tied worst), strict developability funnel, and affinity maturation loop. Designed to maximize experimental hit rate when compute budget is not the primary constraint.
 
@@ -578,12 +578,12 @@ python ~/protein-design-utils/vhh/seq_prefilter.py \
 
 | 检查 | 方法 | 阈值 | 失败动作 |
 |------|------|------|---------|
-| CDR3 长度 | ANARCI IMGT CDR3 residue count | 8–22 aa（`SEQ_CDR3_LEN_MIN/MAX`） | Drop |
-| 非配对 Cys | CDR 区 Cys count 奇偶判断 | 奇数 → 非配对双硫桥 | Drop |
-| ANARCI 编号 | `modal run modal_anarci.py --scheme imgt --assign_germline --use_species human` | 编号失败 OR FR 边界异常 | Drop |
-| N-glycan motif（CDR） | regex `N[^P][ST]` in CDR1/CDR2/CDR3 | 任意匹配 | Drop |
-| 极端 pI | BioPython `ProteinAnalysis.isoelectric_point()` | < 4.0 或 > 10.0 | Drop |
-| 极端净电荷 | BioPython `ProteinAnalysis.charge_at_pH(7.4)` | < −8 | Drop |
+| CDR3 长度 | ANARCI IMGT CDR3 residue count | 8–22 aa（`SEQ_CDR3_LEN_MIN/MAX`） | **Drop**（generator 失败，不可救） |
+| 非配对 Cys | CDR 区 Cys count 奇偶判断 | 奇数 → 非配对双硫桥 | **Drop**（结构失败，不可救） |
+| ANARCI 编号 | `modal run modal_anarci.py --scheme imgt --assign_germline --use_species human` | 编号失败 OR FR 边界异常 | **Drop**（序列非法） |
+| N-glycan motif（CDR） | regex `N[^P][ST]` in CDR1/CDR2/CDR3 | 任意匹配 → 标注 `cdr_glycan_count` 列 + `rescue_suggestion="N→Q at pos X"` | **Flag**（2026-05-12 改：N→Q 单点突变可救，进 Pareto `glycan_count` 含 CDR） |
+| 极端 pI | BioPython `ProteinAnalysis.isoelectric_point()` | < 4.0 或 > 10.0 → 标注 `pi_extreme_flag` + `pi_value` | **Flag**（2026-05-12 改：可通过 surface charge engineering 缓解，进 Pareto `seq_risk_count`） |
+| 极端净电荷 | BioPython `ProteinAnalysis.charge_at_pH(7.4)` | < −8 → 标注 `net_charge_extreme_flag` + `net_charge_value` | **Flag**（2026-05-12 改：同上，进 Pareto `seq_risk_count`） |
 | N-glycan motif（FR） | regex `N[^P][ST]` in FR1/FR2/FR3/FR4，与 scaffold 序列对比 delta | 新引入 sequon → 标注 `fr_glycan_new_count` 列（不硬删，进 Pareto `glycan_count` 目标；FR 糖基对结合影响小于 CDR，但影响生产工艺） | Flag |
 
 > **序列过滤三步串行（2.seqfilter → 2.solfilter → 2.mhcfilter），共同产出 `val/filter/seq_filtered_pool.csv`。** 中间文件写入 `val/filter/`，主链文件只有一个最终输出，断点重跑可从任意中间文件恢复。
@@ -600,9 +600,9 @@ python ~/protein-design-utils/vhh/seq_prefilter.py \
 
 - Input: `{RESULTS_DIR}/val/filter/seq_aa_filtered_pool.csv`
 - 批量提交所有候选序列；protein-sol_mcp 返回 `solubility_score` 列
-- Drop candidates with `protein_sol_score < L4_PROTEIN_SOL_MIN`（默认 0.45）
+- **2026-05-12 改 hard drop → soft flag**：`protein_sol_score < L4_PROTEIN_SOL_MIN`（默认 0.45）→ 标注 `low_solubility_flag=True`，不删；连续值 `protein_sol` 已在 Step 4.4 Pareto 作目标维度，重复 hard drop 会丢 IgGM/Germinal borderline 候选（实测 protein-sol 阈值与 VHH 实际可溶性相关性弱）
 - Output: `{RESULTS_DIR}/val/filter/seq_sol_filtered_pool.csv`（debug 中间文件）
-- Expected attrition: ~600–950 → ~510–810（约 15%）
+- Expected attrition: 0（仅 flag，无淘汰；连续值进 Pareto 自然降权）
 
 ### Step 2.mhcfilter — 免疫原性预筛（序列级，治疗安全性 fail-fast）
 
@@ -621,10 +621,10 @@ python ~/protein-design-utils/vhh/seq_prefilter.py \
 | 场景 | 操作 | 字段 |
 |------|------|------|
 | FR 区 Strong Binder (rank ≤0.5%)，**来自 central scaffold library 保守区** | **只 flag，不 hard drop**（scaffold 免疫原性已有临床验证，hard drop 逻辑倒置） | `mhc_fr_strong_binder_flag=True` |
-| FR 区 Strong Binder (rank ≤0.5%)，**非 scaffold 来源的新引入 FR 序列** | ≥3 个 HLA-DR allele 同时命中 → hard drop | `mhc_fr_strong_binder_flag=True` + `fr_mhc_hard_drop=True` |
+| FR 区 Strong Binder (rank ≤0.5%)，**非 scaffold 来源的新引入 FR 序列** | **2026-05-12 改 hard drop → soft flag**：≥3 个 HLA-DR allele 同时命中 → 强 Pareto 降权 + 标注 `rescue_suggestion="humanize FR via point mutation at residue X"`（FR 序列可定向去免疫原性，hard drop 丢 head-on 候选成本过高） | `mhc_fr_strong_binder_flag=True` + `mhc_risk_score` ≥ 2.0 |
 | CDR 区 Strong Binder (rank ≤0.5%) | **只 flag，不 hard drop**；CDR 肽段在复合物状态下被递呈概率极低 | `mhc_cdr_strong_binder_flag=True` |
 | ≥3 allele 重复命中同一表位（CDR） | `mhc_multi_allele_flag=True`；强降权（`mhc_risk_score` 累加） | `mhc_multi_allele_flag=True` |
-| ≥3 allele 重复命中同一表位（FR，非 scaffold 来源） | `mhc_multi_allele_flag=True`；hard drop | `mhc_multi_allele_flag=True` + `fr_mhc_hard_drop=True` |
+| ≥3 allele 重复命中同一表位（FR，非 scaffold 来源） | **2026-05-12 改 hard drop → soft flag**：`mhc_multi_allele_flag=True` + `mhc_risk_score` += 2.0 强惩罚，进 Pareto 自然降权 | `mhc_multi_allele_flag=True` |
 | CDR Strong + 低 humanness + 低 solubility | 三项并发 → 强降权（`mhc_risk_score` 累加惩罚） | `mhc_risk_score` ↑ |
 
 **新增字段（追加至 `seq_filtered_pool.csv`）：**
@@ -632,7 +632,7 @@ python ~/protein-design-utils/vhh/seq_prefilter.py \
 
 - **CLI fallback**: `python3.12 ~/biomodals/modal_netmhcpan.py --mode protein --input-fasta seq.fasta --allele "HLA-A02:01,HLA-A24:02,HLA-B07:02,HLA-B35:01"`
 - Output: `{RESULTS_DIR}/val/filter/seq_filtered_pool.csv`（pipeline 最终序列过滤输出；2.diversity / 2.5 / 2.l3pool 均读此文件）
-- Expected attrition: ~510–810 → ~470–780（仅 FR multi-allele hard drop，CDR 软处理；实际损耗降低）
+- Expected attrition: 0（2026-05-12 起全 soft flag；`mhc_risk_score` 连续值在 Step 4.4 Pareto 降权，FR multi-allele 累加 2.0 强惩罚自然挤出 front 1）
 
 ### Step 2.diversity — 4-path diversity diagnosis
 
@@ -1395,7 +1395,7 @@ python ~/protein-design-utils/vhh/propagate_anarci.py \
 
 **Tool:** `~/protein-design-utils/vhh/pareto_L4_ranker.py`
 
-**Goal:** 避免单一加权分数掩盖真实 tradeoff。用 6 目标 Pareto 非支配分层保留 borderline 候选，并输出生成层反馈信号供下一轮 campaign 调整各路径配额。
+**Goal:** 避免单一加权分数掩盖真实 tradeoff。用 7 目标 Pareto 非支配分层保留 borderline 候选，并输出生成层反馈信号供下一轮 campaign 调整各路径配额。
 
 **Hard pre-filter（直接删，不入 Pareto）：**
 
@@ -1443,15 +1443,16 @@ for flag_col, factor in F.items():
 df["binding_composite"] = base * mult
 ```
 
-**6 个 Pareto 目标（结合三联指标合并为 binding_composite）：**
+**7 个 Pareto 目标（2026-05-12 新增 `seq_risk_count` 维度，配合 L2/L4 分工再校准）：**
 
 | 来源列 | 方向 | 来源步骤 |
 |--------|------|---------|
 | `binding_composite` | max | 5 分量加权（ipSAE_min 0.40 + cluster_size 0.20 + AntiConf 0.15 + dSASA 0.15 + cdr_dominance 0.10）+ 4 flag 乘性降权；详见 scripts/config.py |
-| `protein_sol` | max | Step 2.solfilter protein-sol score |
+| `protein_sol` | max | Step 2.solfilter protein-sol score（hard drop 已移除 2026-05-12；连续值降权） |
 | `ddG_max` | min | L4.3 Stability Oracle ΔΔG max |
-| `mhc_risk_score` | min | Step 2.mhcfilter 累加风险分（0–3；FR hard drop 已移除；CDR flag 进 Pareto 惩罚） |
-| `glycan_count` | min | Step 2.seqfilter `fr_glycan_new_count`（FR delta sequon 数） |
+| `mhc_risk_score` | min | Step 2.mhcfilter 累加风险分（0–5；全 soft flag 2026-05-12；FR multi-allele 累加 2.0 强惩罚） |
+| `glycan_count` | min | Step 2.seqfilter `fr_glycan_new_count + cdr_glycan_count`（CDR/FR 总 sequon 数，2026-05-12 扩展含 CDR） |
+| `seq_risk_count` | min | Step 2.seqfilter 可救 soft flag 累加：`pi_extreme_flag + net_charge_extreme_flag`（2026-05-12 新增维度；CDR glycan 单算 `glycan_count`） |
 | `humanness_score` | max | L4.1（来自 Step 2.seqfilter ANARCI `v_identity`） |
 
 ```bash
@@ -1831,31 +1832,35 @@ python ~/protein-design-utils/vhh/failure_summary.py \
 
 ## Hard Drop / Soft Flag 总表
 
-### 早期 Hard Drop（序列级，只基于明确缺陷）
+### 早期 Hard Drop（序列级，只基于**不可救**的明确缺陷，2026-05-12 收窄）
 
-| 条件 | 环节 |
-|------|------|
-| invalid ANARCI / 序列非法 | Step 2.seqfilter |
-| missing canonical cysteine | Step 2.seqfilter |
-| unpaired cysteine | Step 2.seqfilter |
-| CDR glycosylation motif | Step 2.seqfilter |
-| FR ≥3 allele MHC hard drop（**仅非 scaffold 来源的新引入 FR 序列**；central scaffold library 的 FR → flag 不删除） | Step 2.mhcfilter |
-| Framework fold 失败（β-sandwich 破坏 / framework pLDDT < 60 / disulfide 几何异常） | Step 2.ibex |
-| CDR3 塌陷进 framework core | Step 2.ibex |
-| 严重内部 clash（单体 Cβ–Cβ < 2.5Å 残基对 > 5） | Step 2.ibex |
-| hotspot_proximity > 15Å 且 loose_contacts = 0 | Layer 2.5 rejected |
+| 条件 | 环节 | 不可救原因 |
+|------|------|-----------|
+| invalid ANARCI / 序列非法 | Step 2.seqfilter | 序列编号失败，生成器 artefact |
+| missing canonical cysteine | Step 2.seqfilter | 双硫桥缺失，VHH 折叠崩溃 |
+| unpaired cysteine | Step 2.seqfilter | 奇数 Cys 错配，结构不稳定 |
+| CDR3 长度越界 [8,22] | Step 2.seqfilter | generator 失败，不可救 |
+| Framework fold 失败（β-sandwich 破坏 / framework pLDDT < 60 / disulfide 几何异常） | Step 2.ibex | 单体折叠失败 |
+| CDR3 塌陷进 framework core | Step 2.ibex | 几何不可救 |
+| 严重内部 clash（单体 Cβ–Cβ < 2.5Å 残基对 > 5） | Step 2.ibex | 结构不可救 |
+| hotspot_proximity > 15Å 且 loose_contacts = 0 | Layer 2.5 rejected | 几何已证伪 |
 
-### 早期 Soft Flag（只 flag，不删除）
+### 早期 Soft Flag（只 flag，不删除；可救项进 Pareto 自然降权）
 
-| 条件 | 字段 |
-|------|------|
-| CDR MHC strong binder | `mhc_cdr_strong_binder_flag` |
-| FR glycosylation motif（非 CDR） | flag（`fr_glycan_new_count` 进 Pareto） |
-| CDR3 pLDDT < 70 | `ibex_cdr3_low_plddt` |
-| CDR3 RMSD > 4Å | `ibex_cdr3_high_rmsd` |
-| CDR3 较长且暴露 | `ibex_cdr3_long_exposed` |
-| loose_contacts = 0/1 但 hotspot_proximity ≤ 15Å | Track C |
-| L3.A medium confidence | `l3a_confidence=medium` |
+| 条件 | 字段 | rescue 路径 |
+|------|------|-------------|
+| **CDR N-glycan motif**（2026-05-12 从 hard drop 改） | `cdr_glycan_count` + `rescue_suggestion` | N→Q 单点突变 |
+| **极端 pI < 4.0 或 > 10.0**（2026-05-12 从 hard drop 改） | `pi_extreme_flag` + `pi_value` | surface charge engineering |
+| **极端净电荷 < −8**（2026-05-12 从 hard drop 改） | `net_charge_extreme_flag` + `net_charge_value` | surface charge engineering |
+| **低 protein-sol < 0.45**（2026-05-12 从 hard drop 改） | `low_solubility_flag` | 连续值进 Pareto `protein_sol` 维度 |
+| **FR ≥3 allele MHC（非 scaffold）**（2026-05-12 从 hard drop 改） | `mhc_fr_strong_binder_flag` + `mhc_risk_score` += 2.0 | humanize FR via point mutation |
+| CDR MHC strong binder | `mhc_cdr_strong_binder_flag` | 复合物状态下 epitope 不暴露 |
+| FR glycosylation motif（非 CDR） | `fr_glycan_new_count` | 进 Pareto `glycan_count` |
+| CDR3 pLDDT < 70 | `ibex_cdr3_low_plddt` | L3 验证看真实结构 |
+| CDR3 RMSD > 4Å | `ibex_cdr3_high_rmsd` | 同上 |
+| CDR3 较长且暴露 | `ibex_cdr3_long_exposed` | 同上 |
+| loose_contacts = 0/1 但 hotspot_proximity ≤ 15Å | Track C | L3.A 进一步评估 |
+| L3.A medium confidence | `l3a_confidence=medium` | L3.B 精筛 |
 
 ### 后期 Hard Drop（仅在充分验证信息后执行）
 
