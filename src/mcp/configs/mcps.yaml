@@ -407,6 +407,24 @@ mcps:
     setup_commands: []
     source: Tool
     url: https://github.com/MacromNex/prottrans_mcp
+  pymol_mcp:
+    dependencies: []
+    description: '> PyMOL MCP server: drives a running PyMOL session over socket;
+      parse_and_execute supports show/hide/color/load/fetch/select/set/align/super/remove/zoom/orient/center/label/spectrum
+      (advanced command parsing)'
+    docker_args: []
+    docker_volumes: []
+    env_vars: {}
+    path: tool-mcps/pymol_mcp
+    python_version: '3.12'
+    runtime: python
+    server_args:
+    - src/server.py
+    server_command: python
+    setup_commands:
+    - pip install 'mcp[cli]>=1.0.0'
+    source: Tool
+    url: https://github.com/vrtejus/pymol-mcp
   rfdiffusion2_mcp:
     dependencies: []
     description: '> RFdiffusion2 MCP server for ligand-binding protein backbone design
