@@ -186,7 +186,7 @@ L3_CDR_DOMINANCE_HARD_DROP: 0.25          # CDR 主导度硬阈值：< 0.25 时 
 FINAL_CANDIDATE_TARGET: 48                 # Total synthesis candidates: 24 / 48 / 96
 FINAL_TOP_SCORING_FRAC: 0.50              # structural_consensus: Pareto rank 1–2，高结构共识
 FINAL_DIVERSITY_FRAC: 0.17                # cdr3_diversity: 高分池外 CDR3 Levenshtein 最大化贪心采样
-FINAL_EPITOPE_DIV_FRAC: 0.12             # epitope_diversity: 按 predicted_epitope_cluster 聚类取代表
+FINAL_EPITOPE_DIV_FRAC: 0.12             # epitope_diversity: 按 l3b_hotspot_jaccard 分层取代表，覆盖不同 hotspot 接触模式
 FINAL_PATH_REP_FRAC: 0.12                 # path_quota: 每条生成路径 Pareto 最高分代表（4 路径均须有代表）
 FINAL_DEV_FRAC: 0.04                      # high_developability: 结构分数中等但 protein-sol / humanness / mhc_risk_score 优秀
 FINAL_EXPLOR_FRAC: 0.04                   # exploratory: 模型分歧大但 pose 有趣的候选
@@ -1177,40 +1177,47 @@ Flag aggregates: `pose_diverged_flag`, `anticonf_low_flag`.
 
 ### Step 3.5a — Hotspot re-verification on L3.B structures（零 GPU，epitope 特异性精确检查）
 
-**Tool:** `~/protein-design-utils/vhh/hotspot_prescreen.py`
+**Tools:** `consensus_to_hotspot_metrics.py` → `l3b_hotspot_aggregate.py`（均在 `~/protein-design-utils/vhh/`）
 
 **Rationale:** L2.5 用的是生成时结构（BoltzGen/Germinal/IgGM 输出），精度参差不齐；L3 全流程中没有其他步骤验证结合位置（ipSAE / dSASA / clash 只检查"结合质量"，不检查"是否贴在正确的表位"）。此步骤在 L3.B 高质量共折叠结构上重跑 hotspot 接触检查，是 pipeline 中唯一的 epitope 特异性精确验证。
 
+两步：① 桥接——`consensus_ranked.csv` 展开成 per-(candidate×model×主簇seed) metrics CSV；② 多数票聚合——每个候选对其全部主簇 seed 算 hotspot 接触，做 K/N 多数票。
+
 ```bash
-python ~/protein-design-utils/vhh/hotspot_prescreen.py \
-  {RESULTS_DIR}/val/l3a/ \
-  --candidates {RESULTS_DIR}/val/l3b/consensus_ranked.csv \
-  --hotspots inputs/hotspots.json \
-  --antigen-chain {TARGET_CHAIN} \
-  --threshold 4.5 --mode residue_contact \
-  --min-contacts {L2P5_HOTSPOT_MIN_CONTACTS_TRACK_A} \
+# ① 桥接：consensus_ranked.csv → metrics CSV
+python ~/protein-design-utils/vhh/consensus_to_hotspot_metrics.py \
+  --consensus {RESULTS_DIR}/val/l3b/consensus_ranked.csv \
+  --l3b-root {RESULTS_DIR}/val/l3b/ \
+  --out {RESULTS_DIR}/val/l3b/l3b_hotspot_metrics.csv
+
+# ② 多数票聚合
+python ~/protein-design-utils/vhh/l3b_hotspot_aggregate.py \
+  --metrics-csv {RESULTS_DIR}/val/l3b/l3b_hotspot_metrics.csv \
+  --epitope {EPITOPE_AUTH_RESIDUES} --hotspots {HOTSPOT_AUTH_RESIDUES} \
+  --offset {ANTIGEN_SEQ_OFFSET} \
+  --candidate-key-cols candidate_id \
+  --threshold 8.0 --min-contacts {L2P5_HOTSPOT_MIN_CONTACTS_TRACK_A} \
+  --majority 3/5 --aggregation median \
   --out {RESULTS_DIR}/val/l3b/hotspot_recheck.csv
 ```
 
 - Input: `consensus_ranked.csv`（L3.B 共折叠结构，Chai-1 / Boltz-2 / Protenix 级别精度）
 - 零额外 GPU 成本：复用已完成的 L3.B 结构文件
-- 此步骤使用 `residue_contact`（重原子距离 ≤ 4.5Å，见 Contact Definitions）进行精确验证
+- 聚合粒度：每候选每模型的主簇 seed（`main_cluster_seed_ids_<model>`）；`pose_diverged` 的模型不贡献结构
+- `--offset` 满足 `label_seq_id = auth_seq_id + offset`（CIF 用 sequential 编号）
 
-**L3.B hotspot 重验证判定规则：**
+**L3.B hotspot 重验证判定规则（二元 hard gate）：**
 
 | 条件 | 操作 | 标注 |
 |------|------|------|
-| CDR 区有 ≥1 `residue_contact` 且接触中心在 epitope zone（hotspot 质心 ±10Å）内 | Pass | `l3b_hotspot_pass=True` |
-| CDR 区有 ≥1 `residue_contact` 但接触中心在 epitope zone 外 ≤20Å | 保留，标注为 alternative epitope | `alternative_epitope_candidate=True` |
-| 完全无 CDR-mediated contact（framework 主导）或接触中心 > 20Å outside epitope | Hard drop | — |
-| 严重 clash / 链穿插 / glycan-shielded / membrane-buried 区域命中 | Hard drop | — |
-| 多模型、多 seed 中 pose 完全不收敛（L3.A `l3a_confidence=low` 漏入者） | Hard drop | — |
+| `pass_l3b_hotspot=yes`（`hs_mean ≥ min_contacts` 且 ≥ K/N 个 model 各自 hs ≥ min_contacts） | 保留 | — |
+| `pass_l3b_hotspot=no`（脱靶 / 脱热点 / 多 model 不收敛） | Hard drop | `failure_reason=l3b_off_epitope` |
 
-> `alternative_epitope_candidate` 保留在 `l3b_hotspot_recheck.csv` 中，单独标注。这类候选可能结合邻近功能性表位，不应自动删除；进入后续 Pareto 时在 `epitope_consistency_score` 维度有惩罚，最终由人工审查决定是否合成。
+> **为什么没有 alternative-epitope 软保留：** de novo VHH 的 CDR 是为指定 epitope/hotspot 生成/优化的。验证器把候选预测到别的位点，只可能是设计失败或预测 artifact——不构成可信结合证据。confidence metrics（ipTM/ipSAE）本质上不针对 binding specificity 校准（Greiff lab, *Structural Plausibility Without Binding Specificity*, bioRxiv 2026：AF3/Boltz-2/Chai-1 在 106 VHH-antigen 真复合物 vs 11k shuffle 上 PR-AUC 贴随机基线），连「真抗原 vs 假抗原」都分不出，更无法验证「VHH 落在该抗原的正确位点」。脱靶 = hard drop。容差体现在 epitope 残基集本身定义（从共晶真值抽、留接触半径余量），不单设 alternative-epitope 类别。
 
-- 新增列：`l3b_hotspot_contacts`（int）、`l3b_hotspot_pass`（bool）、`alternative_epitope_candidate`（bool）、`l3b_hotspot_jaccard`（float；= |接触残基 ∩ hotspot_set| / |接触残基 ∪ hotspot_set|；`alternative_epitope_candidate=True` 时值为 NaN）
+- 新增列：`rep_hotspot_contacts`（int）、`hotspot_contacts_mean`（float）、`n_models_hs_pass`（int）、`l3b_hotspot_jaccard`（float；= |接触的 hotspot| / |接触的 epitope 残基 ∪ 指定 hotspot 集|）、`pass_l3b_hotspot`（yes/no）
 - Output: `{RESULTS_DIR}/val/l3b/hotspot_recheck.csv`
-- Expected attrition: < 5%（L2.5 已预筛大部分；此处主要捕获生成结构精度不足导致的漏网）
+- Expected attrition: 见 L3.B gate 漏斗（L2.5 已预筛大部分；此处捕获生成结构精度不足导致的漏网脱靶）
 
 ### Step 3.5b — CDR3 dSASA interface filter
 
@@ -1421,8 +1428,8 @@ df["epitope_consistency_score"] = df["l3b_hotspot_jaccard"]
 # Pareto 前置过滤（未达阈值直接排在 Pareto 末尾，不删除；标注 pre_pareto_fail=True）
 df["pre_pareto_fail"] = (
     (df["pose_convergence_score"] < 0.30) |  # 3/10 seed 以下收敛认为 pose 不稳定
-    (df["epitope_consistency_score"] < 0.10)  # 几乎不与 hotspot 重叠（注意 alt_epitope 候选豁免此检查）
-) & ~df["alternative_epitope_candidate"]
+    (df["epitope_consistency_score"] < 0.10)  # 几乎不与 hotspot 重叠
+)
 ```
 
 **binding_composite 预计算（Hard pre-filter 之后、Pareto 之前）：**
@@ -1495,13 +1502,13 @@ python ~/protein-design-utils/vhh/build_final_candidates.py \
 |------|---------|------------|-----------|
 | `structural_consensus` | `FINAL_TOP_SCORING_FRAC=0.50` | 24 | Pareto rank 1–2，高结构共识；按路线配额分配 |
 | `cdr3_diversity` | `FINAL_DIVERSITY_FRAC=0.17` | 8 | 高分池外 CDR3 Levenshtein 最大化贪心采样 |
-| `epitope_diversity` | `FINAL_EPITOPE_DIV_FRAC=0.12` | 6 | 按 `predicted_epitope_cluster` 聚类取代表，覆盖不同 epitope sub-site |
+| `epitope_diversity` | `FINAL_EPITOPE_DIV_FRAC=0.12` | 6 | 按 `l3b_hotspot_jaccard` 分层取代表，覆盖不同 hotspot 接触模式 |
 | `path_quota` | `FINAL_PATH_REP_FRAC=0.12` | 6 | 每条生成路径 Pareto 最高分代表（4 路径均须有代表） |
 | `high_developability` | `FINAL_DEV_FRAC=0.04` | 2 | 结构分数中等但 protein-sol / humanness / mhc_risk_score 优秀 |
-| `exploratory` | `FINAL_EXPLOR_FRAC=0.04` | 2 | 模型分歧大但 pose 有趣的候选（`l3a_confidence=medium` 且 `alternative_epitope_candidate`） |
+| `exploratory` | `FINAL_EXPLOR_FRAC=0.04` | 2 | 模型分歧大但 pose 有趣的候选（`l3a_confidence=medium`，ipSAE 分歧跨模型） |
 
 **新增字段（写入 `{RESULTS_DIR}/final/top_candidates.csv`）：**
-`selection_category`（上表六类之一）、`selection_reason`（选入理由简述）、`cdr3_cluster`（CDR3 聚类 ID）、`predicted_epitope_cluster`（epitope 聚类 ID）、`source_path_quota_flag`（bool）
+`selection_category`（上表六类之一）、`selection_reason`（选入理由简述）、`cdr3_cluster`（CDR3 聚类 ID）、`source_path_quota_flag`（bool）
 
 - **配额缩放逻辑：** `PATH_QUOTA_PER_10` 定义每 10 个名额的路线比例（4:2:2:2），按 `FINAL_CANDIDATE_TARGET` 线性缩放（48 个 → 19:10:10:10，不足时顺延补位）
 - **RFantibody 比例最高（40%）：** SAbDab fine-tuned backbone 成熟度最高，历史命中率最稳
@@ -1781,13 +1788,12 @@ python ~/protein-design-utils/vhh/calibrate_thresholds.py \
 | `sequence` | 完整 VHH 序列 |
 | `cdr1` / `cdr2` / `cdr3` | ANARCI 切分结果 |
 | `cdr3_cluster` | CDR3 聚类 ID（Step 4.4b） |
-| `predicted_epitope_cluster` | epitope 聚类 ID（Step 3.5a 接触中心） |
 | `sequence_filter_status` | `pass` / `hard_drop` / `soft_flag` |
 | `sequence_filter_flags` | 逗号分隔 flag 列表（如 `mhc_cdr_strong_binder,ibex_cdr3_high_rmsd`） |
 | `monomer_qc_status` | `pass` / `hard_drop`（ibex Step 2.ibex） |
 | `hotspot_track` | `A` / `B` / `B_keep` / `C_low_priority` / `rejected` |
 | `l3a_status` | `high` / `medium` / `low` / `skipped` |
-| `l3b_status` | `pass` / `fail` / `alternative_epitope_candidate` |
+| `l3b_status` | `pass` / `fail` |
 | `developability_status` | `pass` / `fr_ddg_drop` / `borderline` |
 | `final_selection_status` | `selected` / `pareto_survivor` / `not_selected` |
 | `final_selection_reason` | `structural_consensus` / `cdr3_diversity` / `epitope_diversity` / `path_quota` / `high_developability` / `exploratory` / `—` |
@@ -1816,7 +1822,7 @@ python ~/protein-design-utils/vhh/calibrate_thresholds.py \
 | `l3a_low_confidence` | L3.A |
 | `null_sticky_vhh` | Step 3.5 dual null gate（unrelated null fail；S5 新增）|
 | `null_seq_luck` | Step 3.5 dual null gate（scramble null fail）|
-| `l3b_no_cdr_contact` | Step 3.5a |
+| `l3b_off_epitope` | Step 3.5a |
 | `severe_clash` | Step 3.5d |
 | `fr_ddg_drop` | Step 4.3a |
 | `pareto_not_selected` | Step 4.4b |
@@ -1868,11 +1874,11 @@ python ~/protein-design-utils/vhh/failure_summary.py \
 
 | 条件 | 环节 |
 |------|------|
-| 完全无 CDR-mediated contact（framework 主导）且 epitope 中心 > 20Å outside | Step 3.5a |
+| off-epitope（`pass_l3b_hotspot=no`） | Step 3.5a |
+| glycan-shielded / membrane-buried / oligomer-blocked 区域命中 | Step 3.5a |
 | `null_gate_status == sticky`（unrelated antigen null 失败，S5 新增） | Step 3.5 dual null gate |
 | `null_gate_status == seq_luck`（scramble CDR3 null 失败） | Step 3.5 dual null gate |
 | 严重 clash（complex Cβ–Cβ < 3.4Å 残基对 > 3） | Step 3.5d |
-| glycan-shielded / membrane-buried / oligomer-blocked 区域命中 | Step 3.5a |
 | 多模型、多 seed pose 完全不收敛（pose_convergence_score < 0.30） | Step 4.4 pre-filter |
 | Framework core ΔΔG > 1.5 kcal/mol | Step 4.3a |
 
