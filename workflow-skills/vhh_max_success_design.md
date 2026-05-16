@@ -1003,6 +1003,8 @@ python ~/protein-design-utils/vhh/calibrate_neg_control_thresholds.py \
 
 **两轮架构：** L3.A 用路径感知模型对全量候选做粗筛（→ top `L3A_COARSE_PASS_N` 150）；L3.B 用 2–4 模型对幸存者精筛（→ 15–25）。Absolute ipTM values are NOT compared — only rank agreement matters (per `domain_protein_design_gotchas.md` rule #2).
 
+> **⚠️ 为什么不比较绝对 ipTM/pTM — AF3 家族对 de novo backbone 系统性 blind：** L3 验证用的 Chai-1 / Boltz-2 / Protenix 均为 AF3 家族，其 backbone latent space 实质是「PDB 已知骨架」的隐式相似度分类器。对生成工具（RFdiffusion / RFantibody / BoltzGen）产出的训练集分布外 novel topology，pTM/ipTM 给出的是「像不像一个真实 PDB 结构」的相似度，而非 fold accuracy——de novo backbone 的 ipTM floor 会系统性塌陷（16F9 实测 Protenix 0/53、AF3-server widepath_D 0/21），这是工具训练集偏差、不是候选质量问题。因此本 skill 的 L3 排序**只用 rank agreement + pose convergence + dual_filter 几何**，绝对 ipTM/pTM 仅作「backbone 没崩」的 sanity check（pTM ≥ 0.40）。寻第三正交 engine 时同样应排除 AF3 fork（含 OpenFold3）。详见 `domain_protein_design_gotchas.md` §11。
+
 > **Ibex 单体预筛已在 Step 2.ibex（Layer 2 末尾）完成**，Layer 3 直接从结构共折叠开始，无单体预筛步骤。
 
 ### L3.B 模式选择（仅对 L3.A 幸存者；L3.A 使用路径感知模型，见下）
