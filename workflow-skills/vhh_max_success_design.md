@@ -1154,7 +1154,7 @@ This step number is preserved (not renumbered) to avoid breaking references to S
 | Step | Operation | Hard drop | Soft flag |
 |------|-----------|-----------|-----------|
 | ① | ipTM chain-pair < `L3B_IPTM_CHAIN_PAIR_HARD_DROP` (default 0.50) | seeds dropped; if remaining < 3 → flag `iptm_chainpair_fail_<model>` | — |
-| ② | 5-seed CDR3 Cα 连通分量聚类 @ `L3B_CLUSTER_RMSD_ANGSTROM` (4Å) | — | main_cluster<3 → `pose_diverged_<model>` |
+| ② | 5-seed iRMSD + epitope Jaccard 聚类（模型感知，见下） | — | Boltz-2 主簇<`MAIN_CLUSTER_MIN_SIZE_BOLTZ2` → `pose_diverged_<model>`；Chai-1 不发散 |
 | ③ | Cluster-internal ipSAE_min | — | — |
 | ④ | Cross-model ipSAE_min (min-min) + Overath F1 floor 0.50 | — | < floor → `ipsae_min_min_below_floor` |
 | ⑤ | AntiConf (pTM × pDockQ2) → 簇内代表 pose 挑选 | — | < 0.40 → `anticonf_low_<model>` |
@@ -1174,6 +1174,20 @@ Cross-model: `ipsae_min_min`, `cross_model_incomplete`, `ipsae_min_min_below_flo
 Flag aggregates: `pose_diverged_flag`, `anticonf_low_flag`.
 
 **Output: `consensus_ranked.csv`** — feeds Step 3.5a/3.5b/3.5d via `--cif-path-col representative_cif_path_primary`.
+
+> **Step 3.5 ② 聚类度量（2026-05-16 修订）：** 旧 CDR3 Cα RMSD 已废弃——CDR3 H3
+> 是 VHH 最长最柔的 loop，真实构象柔性会被误判为不收敛。新判据用 CAPRI 标准：
+> 抗原 backbone 对齐后，按界面接触残基（任一重原子 ≤ `IRMSD_INTERFACE_RADIUS_A`
+> 5Å）并集的 backbone 算 iRMSD，配合抗原侧接触残基集 epitope Jaccard，
+> 同簇 = `jaccard > EPITOPE_JACCARD_CLUSTER_MIN(0.5) AND iRMSD < IRMSD_CLUSTER_THRESHOLD_A(4Å)`
+> （长 H3 ≥ `LONG_H3_THRESHOLD` 20aa 时 iRMSD 阈值放宽到 5Å）。
+> **模型感知：** Boltz-2 5-model 多样性大（iPTM 跨 seed std 0.09-0.12），走连通分量
+> 聚类、主簇 ≥3/5 = 收敛；Chai-1 5-model 近自相关（std 0.005-0.012），聚类无意义，
+> `CHAI1_USE_MAX_HIT_REP` 下不走主簇判据，代表 = max epitope-hit model。
+> 阈值见 `scripts/config.py` (4b) 段。
+> 跨模型 ④ min-min 之外，另用跨模型 iRMSD + epitope Jaccard 决策树
+> （`cross_model_agreement_multiplier`：strong ×1.1 / partial ×0.85 / divergent ×0.5）
+> 折入 `binding_composite`。
 
 ### Step 3.5a — Hotspot re-verification on L3.B structures（零 GPU，epitope 特异性精确检查）
 
